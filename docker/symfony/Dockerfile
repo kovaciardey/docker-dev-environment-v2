@@ -35,8 +35,9 @@ RUN docker-php-ext-install \
     xml \
     dom \
     simplexml \
-    xmlwriter \
-    tokenizer
+    xmlwriter
+    # xmlwriter \
+    # tokenizer
 
 # Install APCu (recommended for Symfony caching and proxy-manager-bridge)
 RUN pecl install apcu \

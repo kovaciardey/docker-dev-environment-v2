@@ -1,0 +1,52 @@
+# ============================================
+# Docker Build Context Ignore
+# ============================================
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+*.md
+
+# Environment files (use docker-compose env vars instead)
+.env
+.env.example
+
+# Logs
+logs/
+*.log
+
+# Symfony project (mounted via volume, not copied)
+projects/
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Docker files (no need to copy into containers)
+docker-compose*.yml
+Dockerfile
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Backups
+*.backup
+*.bak
+*.sql
