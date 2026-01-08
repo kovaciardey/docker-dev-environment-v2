@@ -17,11 +17,6 @@ services:
       - ./projects/symfony-api:/var/www/html
     networks:
       - symfony-network
-    environment:
-      # Symfony environment variables
-      APP_ENV: ${APP_ENV:-dev}
-      APP_SECRET: ${APP_SECRET:-changeme}
-      DATABASE_URL: mysql://${MYSQL_USER:-symfony}:${MYSQL_PASSWORD:-symfony}@mysql:3306/${MYSQL_DATABASE:-symfony}?serverVersion=8.0
     depends_on:
       - mysql
 
@@ -55,9 +50,9 @@ services:
       - "${MYSQL_PORT:-3306}:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-symfony}
-      MYSQL_USER: ${MYSQL_USER:-symfony}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-symfony}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-ape-management}
+      MYSQL_USER: ${MYSQL_USER:-root}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-root}
     volumes:
       # Persist database data
       - mysql-data:/var/lib/mysql
@@ -77,8 +72,8 @@ services:
     environment:
       PMA_HOST: mysql
       PMA_PORT: 3306
-      PMA_USER: ${MYSQL_USER:-symfony}
-      PMA_PASSWORD: ${MYSQL_PASSWORD:-symfony}
+      PMA_USER: ${MYSQL_USER:-root}
+      PMA_PASSWORD: ${MYSQL_PASSWORD:-root}
       UPLOAD_LIMIT: 50M
     networks:
       - symfony-network
