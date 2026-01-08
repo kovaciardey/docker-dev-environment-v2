@@ -1,0 +1,125 @@
+# ============================================
+# Symfony Development Environment - .gitignore
+# ============================================
+
+# Environment Configuration
+# -------------------------
+# Never commit .env (contains sensitive data and local configuration)
+.env
+
+# Symfony Project Directory
+# -------------------------
+# The actual Symfony project should be in its own repository
+projects/
+projects/*
+
+# Docker Volumes & State
+# ----------------------
+# Let Docker manage these
+.docker/
+volumes/
+
+# Logs
+# ----
+logs/
+*.log
+
+# Operating System Files
+# ----------------------
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+
+# IDE & Editor Files
+# ------------------
+# VSCode
+.vscode/
+*.code-workspace
+
+# PHPStorm / IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Python
+# ------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Temporary Files
+# ---------------
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+
+# Docker Compose Override
+# -----------------------
+# Allow teams to have local overrides without conflicts
+docker-compose.override.yml
+
+# Backup Files
+# ------------
+*.sql
+*.sql.gz
+*.dump
+backup/
+backups/
+
+# Node Modules (if you add frontend tooling later)
+# ------------------------------------------------
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Certificates & Keys
+# -------------------
+*.pem
+*.key
+*.crt
+*.p12
+ssl/
+certs/
+
+# Custom Local Scripts
+# --------------------
+# Allow developers to create personal helper scripts
+local/
+*.local.*

@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # PHP-FPM service for Symfony
+  php:
+    build:
+      context: ./docker/symfony
+      dockerfile: Dockerfile
+      args:
+        USER_ID: ${USER_ID:-1000}
+        GROUP_ID: ${GROUP_ID:-1000}
+    container_name: symfony-php
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      # Mount Symfony project directory
+      - ./projects/symfony-api:/var/www/html
+    networks:
+      - symfony-network
+    environment:
+      # Symfony environment variables
+      APP_ENV: ${APP_ENV:-dev}
+      APP_SECRET: ${APP_SECRET:-changeme}
+      DATABASE_URL: mysql://${MYSQL_USER:-symfony}:${MYSQL_PASSWORD:-symfony}@mysql:3306/${MYSQL_DATABASE:-symfony}?serverVersion=8.0
+    depends_on:
+      - mysql
+
+  # Nginx web server
+  nginx:
+    build:
+      context: ./docker/nginx
+      dockerfile: Dockerfile
+    container_name: symfony-nginx
+    restart: unless-stopped
+    ports:
+      # Map host port to container port
+      - "${NGINX_PORT:-8080}:80"
+    volumes:
+      # Mount same Symfony directory for serving static files
+      - ./projects/symfony-api:/var/www/html
+      # Mount logs for debugging
+      - ./logs/nginx:/var/log/nginx
+    networks:
+      - symfony-network
+    depends_on:
+      - php
+
+  # MySQL database
+  mysql:
+    image: mysql:8.0
+    container_name: symfony-mysql
+    restart: unless-stopped
+    ports:
+      # Expose MySQL port to host (optional, for external clients like MySQL Workbench)
+      - "${MYSQL_PORT:-3306}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-symfony}
+      MYSQL_USER: ${MYSQL_USER:-symfony}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-symfony}
+    volumes:
+      # Persist database data
+      - mysql-data:/var/lib/mysql
+      # Custom MySQL configuration
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/custom.cnf:ro
+    networks:
+      - symfony-network
+    command: --default-authentication-plugin=mysql_native_password
+
+  # phpMyAdmin for database management
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: symfony-phpmyadmin
+    restart: unless-stopped
+    ports:
+      - "${PHPMYADMIN_PORT:-8081}:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: ${MYSQL_USER:-symfony}
+      PMA_PASSWORD: ${MYSQL_PASSWORD:-symfony}
+      UPLOAD_LIMIT: 50M
+    networks:
+      - symfony-network
+    depends_on:
+      - mysql
+
+# Define network for inter-container communication
+networks:
+  symfony-network:
+    driver: bridge
+
+# Define volumes for data persistence
+volumes:
+  mysql-data:
+    driver: local
