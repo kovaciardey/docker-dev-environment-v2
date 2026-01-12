@@ -50,9 +50,6 @@ services:
       - "${MYSQL_PORT:-3306}:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-ape-management}
-      MYSQL_USER: ${MYSQL_USER:-root}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-root}
     volumes:
       # Persist database data
       - mysql-data:/var/lib/mysql
@@ -72,8 +69,8 @@ services:
     environment:
       PMA_HOST: mysql
       PMA_PORT: 3306
-      PMA_USER: ${MYSQL_USER:-root}
-      PMA_PASSWORD: ${MYSQL_PASSWORD:-root}
+      PMA_USER: root
+      PMA_PASSWORD: root
       UPLOAD_LIMIT: 50M
     networks:
       - symfony-network
