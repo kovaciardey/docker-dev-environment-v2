@@ -153,6 +153,11 @@ Examples:
     
     # aliases command
     subparsers.add_parser('aliases', help='Install bash aliases')
+
+    # up command
+    up_parser = subparsers.add_parser('up', help='Start containers with optional rebuild')
+    up_parser.add_argument('--build', action='store_true',
+                      help='Rebuild containers before starting')
     
     return parser
 
@@ -613,6 +618,44 @@ if __name__ == "__main__":
     # Store these for use in command functions
     PROJECT_ROOT = get_project_root()
     COMPOSE_CMD = compose_cmd
+
+    def cmd_up(compose_cmd, project_root, build=False):
+        """Start containers with optional rebuild"""
+        if build:
+            print_header("Starting Containers with Rebuild")
+        else:
+            print_header("Starting Containers")
+        
+        # Check for .env file
+        env_file = project_root / '.env'
+        if not env_file.exists():
+            print_error(".env file not found!")
+            print_info("Run 'dev init' first to initialize the environment")
+            return False
+        
+        # Build the command
+        if build:
+            cmd = f"{compose_cmd} up -d --build"
+            print_info("Building and starting containers (this may take a few minutes)...")
+        else:
+            cmd = f"{compose_cmd} up -d"
+            print_info("Starting containers...")
+        
+        if not run_command(cmd, cwd=project_root):
+            print_error("Failed to start containers")
+            return False
+        
+        print_success("Containers started successfully")
+        
+        # Show status
+        print_info("\nContainer Status:")
+        run_command(f"{compose_cmd} ps", cwd=project_root, check=False)
+        
+        print_info("\nAccess your application:")
+        print(f"  • Symfony: {Colors.OKBLUE}http://localhost:8080{Colors.ENDC}")
+        print(f"  • phpMyAdmin: {Colors.OKBLUE}http://localhost:8081{Colors.ENDC}")
+        
+        return True
     
 # Command routing
     if args.command == 'init':
@@ -641,6 +684,8 @@ if __name__ == "__main__":
         cmd_status(COMPOSE_CMD, PROJECT_ROOT)
     elif args.command == 'aliases':
         cmd_aliases(PROJECT_ROOT)
+    elif args.command == 'up':
+        cmd_up(COMPOSE_CMD, PROJECT_ROOT, args.build)
     else:
         parser.print_help()
         sys.exit(1)
