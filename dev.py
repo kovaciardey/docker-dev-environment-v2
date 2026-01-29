@@ -110,6 +110,7 @@ Examples:
   %(prog)s symfony cache:clear     # Clear Symfony cache
   %(prog)s shell php               # Open shell in PHP container
   %(prog)s logs nginx              # View Nginx logs
+  %(prog)s up --build              # Start containers with rebuild
         """
     )
     
