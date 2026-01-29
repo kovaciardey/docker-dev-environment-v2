@@ -24,19 +24,19 @@ class Colors:
 
 def print_success(msg):
     """Print success message in green"""
-    print(f"{Colors.OKGREEN}✓ {msg}{Colors.ENDC}")
+    print(f"{Colors.OKGREEN}+ {msg}{Colors.ENDC}")
 
 def print_error(msg):
     """Print error message in red"""
-    print(f"{Colors.FAIL}✗ {msg}{Colors.ENDC}", file=sys.stderr)
+    print(f"{Colors.FAIL}x {msg}{Colors.ENDC}", file=sys.stderr)
 
 def print_info(msg):
     """Print info message in cyan"""
-    print(f"{Colors.OKCYAN}ℹ {msg}{Colors.ENDC}")
+    print(f"{Colors.OKCYAN}* {msg}{Colors.ENDC}")
 
 def print_warning(msg):
     """Print warning message in yellow"""
-    print(f"{Colors.WARNING}⚠ {msg}{Colors.ENDC}")
+    print(f"{Colors.WARNING}! {msg}{Colors.ENDC}")
 
 def print_header(msg):
     """Print section header"""
