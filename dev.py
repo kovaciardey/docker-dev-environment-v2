@@ -111,6 +111,7 @@ Examples:
   %(prog)s shell php               # Open shell in PHP container
   %(prog)s logs nginx              # View Nginx logs
   %(prog)s up --build              # Start containers with rebuild
+  %(prog)s nuke                    # Complete Docker cleanup
         """
     )
     
@@ -154,6 +155,11 @@ Examples:
     
     # aliases command
     subparsers.add_parser('aliases', help='Install bash aliases')
+
+    # nuke command
+    nuke_parser = subparsers.add_parser('nuke', help='Complete Docker reset - remove all containers, images, volumes')
+    nuke_parser.add_argument('--force', action='store_true',
+                            help='Skip confirmation prompt')
 
     # up command
     up_parser = subparsers.add_parser('up', help='Start containers with optional rebuild')
@@ -481,15 +487,15 @@ def cmd_init(compose_cmd, project_root):
     print_header("Initialization Complete!")
     print_success("Development environment is ready!")
     print_info("\nAccess your application:")
-    print(f"  • Symfony: {Colors.OKBLUE}http://localhost:8080{Colors.ENDC}")
-    print(f"  • phpMyAdmin: {Colors.OKBLUE}http://localhost:8081{Colors.ENDC}")
+    print(f"  * Symfony: {Colors.OKBLUE}http://localhost:8080{Colors.ENDC}")
+    print(f"  * phpMyAdmin: {Colors.OKBLUE}http://localhost:8081{Colors.ENDC}")
     print_info("\nUseful commands:")
-    print("  • dev status          - View container status")
-    print("  • dev logs -f         - Follow all logs")
-    print("  • dev composer [cmd]  - Run Composer commands")
-    print("  • dev symfony [cmd]   - Run Symfony console")
-    print("  • dev shell           - Open shell in PHP container")
-    print("  • dev mysql           - Open MySQL CLI")
+    print("  * dev status          - View container status")
+    print("  * dev logs -f         - Follow all logs")
+    print("  * dev composer [cmd]  - Run Composer commands")
+    print("  * dev symfony [cmd]   - Run Symfony console")
+    print("  * dev shell           - Open shell in PHP container")
+    print("  * dev mysql           - Open MySQL CLI")
     print_info("\nReload your shell or run: source ~/.bashrc")
     
     return True
@@ -586,13 +592,121 @@ fi
     
     print_success("\nAliases installed successfully!")
     print_info("\nAvailable aliases:")
-    print("  • dev              - Main dev.py command")
-    print("  • dcomposer        - Shortcut for 'dev composer'")
-    print("  • dsymfony         - Shortcut for 'dev symfony'")
-    print("  • dshell           - Shortcut for 'dev shell'")
-    print("  • dmysql           - Shortcut for 'dev mysql'")
-    print("  • dlogs            - Shortcut for 'dev logs'")
+    print("  * dev              - Main dev.py command")
+    print("  * dcomposer        - Shortcut for 'dev composer'")
+    print("  * dsymfony         - Shortcut for 'dev symfony'")
+    print("  * dshell           - Shortcut for 'dev shell'")
+    print("  * dmysql           - Shortcut for 'dev mysql'")
+    print("  * dlogs            - Shortcut for 'dev logs'")
     print_info("\nReload your shell with: source ~/.bashrc")
+    
+    return True
+
+def cmd_nuke(compose_cmd, project_root, force=False):
+    """Complete Docker reset - nuclear option"""
+    print_header("[!] NUCLEAR OPTION - Complete Docker Reset [!]")
+    
+    if not force:
+        print_warning("This will completely remove:")
+        print("  * All project containers (running and stopped)")
+        print("  * All project images")
+        print("  * All project volumes (INCLUDING DATABASE DATA)")
+        print("  * All build cache")
+        print_warning("\nYour Symfony code will NOT be deleted")
+        print_warning("But you will lose ALL database data!")
+        print_warning("\nThis action CANNOT be undone!")
+        
+        confirm = input("\nType 'NUKE' in capitals to confirm: ").strip()
+        if confirm != 'NUKE':
+            print_info("Nuke cancelled")
+            return False
+    
+    print_info("\n*** Beginning nuclear cleanup...")
+    
+    # Step 1: Stop and remove containers
+    print_info("\n[1/5] Stopping and removing containers...")
+    if run_command(f"{compose_cmd} down", cwd=project_root, check=False):
+        print_success("Containers stopped and removed")
+    else:
+        print_warning("Failed to stop containers (they may not exist)")
+    
+    # Step 2: Remove volumes
+    print_info("\n[2/5] Removing volumes...")
+    if run_command(f"{compose_cmd} down -v", cwd=project_root, check=False):
+        print_success("Volumes removed")
+    else:
+        print_warning("Failed to remove volumes (they may not exist)")
+    
+    # Step 3: Remove images
+    print_info("\n[3/5] Removing images...")
+    # Get image names from docker-compose
+    get_images_cmd = f"{compose_cmd} config --images"
+    images = run_command(get_images_cmd, cwd=project_root, capture_output=True)
+    
+    if images:
+        for image in images.split('\n'):
+            if image.strip():
+                remove_cmd = f"docker rmi {image.strip()} --force"
+                run_command(remove_cmd, check=False)
+        print_success("Images removed")
+    else:
+        print_info("No images to remove")
+    
+    # Step 4: Prune build cache
+    print_info("\n[4/5] Pruning build cache...")
+    if run_command("docker builder prune -af", check=False):
+        print_success("Build cache pruned")
+    else:
+        print_warning("Failed to prune build cache")
+    
+    # Step 5: Clean up orphaned resources
+    print_info("\n[5/5] Cleaning up orphaned resources...")
+    run_command("docker system prune -f", check=False)
+    print_success("Orphaned resources cleaned")
+    
+    print_header("*** Nuclear Cleanup Complete! ***")
+    print_success("All Docker resources have been removed")
+    print_info("\nTo rebuild your environment:")
+    print("  * dev init          - Full initialization")
+    print("  * dev up --build    - Start with rebuild")
+    
+    return True
+
+def cmd_up(compose_cmd, project_root, build=False):
+    """Start containers with optional rebuild"""
+    if build:
+        print_header("Starting Containers with Rebuild")
+    else:
+        print_header("Starting Containers")
+    
+    # Check for .env file
+    env_file = project_root / '.env'
+    if not env_file.exists():
+        print_error(".env file not found!")
+        print_info("Run 'dev init' first to initialize the environment")
+        return False
+    
+    # Build the command
+    if build:
+        cmd = f"{compose_cmd} up -d --build"
+        print_info("Building and starting containers (this may take a few minutes)...")
+    else:
+        cmd = f"{compose_cmd} up -d"
+        print_info("Starting containers...")
+    
+    if not run_command(cmd, cwd=project_root):
+        print_error("Failed to start containers")
+        return False
+    
+    print_success("Containers started successfully")
+    
+    # Show status
+    print_info("\nContainer Status:")
+    run_command(f"{compose_cmd} ps", cwd=project_root, check=False)
+    
+    print_info("\nAccess your application:")
+    print(f"  * Symfony: {Colors.OKBLUE}http://localhost:8080{Colors.ENDC}")
+    print(f"  * phpMyAdmin: {Colors.OKBLUE}http://localhost:8081{Colors.ENDC}")
     
     return True
 
@@ -619,44 +733,6 @@ if __name__ == "__main__":
     # Store these for use in command functions
     PROJECT_ROOT = get_project_root()
     COMPOSE_CMD = compose_cmd
-
-    def cmd_up(compose_cmd, project_root, build=False):
-        """Start containers with optional rebuild"""
-        if build:
-            print_header("Starting Containers with Rebuild")
-        else:
-            print_header("Starting Containers")
-        
-        # Check for .env file
-        env_file = project_root / '.env'
-        if not env_file.exists():
-            print_error(".env file not found!")
-            print_info("Run 'dev init' first to initialize the environment")
-            return False
-        
-        # Build the command
-        if build:
-            cmd = f"{compose_cmd} up -d --build"
-            print_info("Building and starting containers (this may take a few minutes)...")
-        else:
-            cmd = f"{compose_cmd} up -d"
-            print_info("Starting containers...")
-        
-        if not run_command(cmd, cwd=project_root):
-            print_error("Failed to start containers")
-            return False
-        
-        print_success("Containers started successfully")
-        
-        # Show status
-        print_info("\nContainer Status:")
-        run_command(f"{compose_cmd} ps", cwd=project_root, check=False)
-        
-        print_info("\nAccess your application:")
-        print(f"  • Symfony: {Colors.OKBLUE}http://localhost:8080{Colors.ENDC}")
-        print(f"  • phpMyAdmin: {Colors.OKBLUE}http://localhost:8081{Colors.ENDC}")
-        
-        return True
     
 # Command routing
     if args.command == 'init':
@@ -685,6 +761,8 @@ if __name__ == "__main__":
         cmd_status(COMPOSE_CMD, PROJECT_ROOT)
     elif args.command == 'aliases':
         cmd_aliases(PROJECT_ROOT)
+    elif args.command == 'nuke':
+        cmd_nuke(COMPOSE_CMD, PROJECT_ROOT, args.force)
     elif args.command == 'up':
         cmd_up(COMPOSE_CMD, PROJECT_ROOT, args.build)
     else:
