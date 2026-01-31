@@ -2,7 +2,7 @@
 
 A Docker-based development environment for Symfony 6.4 API projects with Nginx, PHP-FPM, MySQL, and phpMyAdmin. Fully OS-agnostic and designed for WSL/Linux environments.
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Features](#features)
 - [Prerequisites](#prerequisites)
@@ -17,7 +17,7 @@ A Docker-based development environment for Symfony 6.4 API projects with Nginx, 
 
 ---
 
-## ✨ Features
+## Features
 
 - **Containerized Development** - No host OS dependencies
 - **Python CLI Wrapper** - Simple commands for all Docker operations
@@ -30,7 +30,7 @@ A Docker-based development environment for Symfony 6.4 API projects with Nginx, 
 
 ---
 
-## 🔧 Prerequisites
+## Prerequisites
 
 - **Docker** (20.10 or higher)
 - **Docker Compose** (v2.0 or higher)
@@ -48,7 +48,7 @@ git --version
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Clone This Repository
 ```bash
@@ -90,7 +90,7 @@ Now you can use short aliases like `dev`, `dcomposer`, `dsymfony`, etc.
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 ```
 ┌─────────────┐
 │   Browser   │
@@ -130,23 +130,26 @@ Now you can use short aliases like `dev`, `dcomposer`, `dsymfony`, etc.
 
 ---
 
-## 📝 Available Commands
+## Available Commands
 
 ### Container Lifecycle
 ```bash
 dev init              # Initialize environment (first-time setup)
+dev up                # Start containers (use --build to rebuild)
 dev start             # Start all containers
 dev stop              # Stop all containers
 dev restart           # Restart all containers
 dev down              # Stop and remove containers (data preserved)
 dev rebuild           # Rebuild containers from scratch
 dev status            # Show container status
+dev nuke              # Complete Docker reset (use --force to skip prompt)
 ```
 
 ### Development Commands
 ```bash
 dev composer [cmd]    # Run Composer commands
 dev symfony [cmd]     # Run Symfony console commands
+dev setup-symfony     # Run Symfony database setup (create DB, migrations, fixtures)
 dev shell [service]   # Open interactive shell (default: php)
 dev mysql             # Open MySQL CLI
 dev logs [service]    # View logs (use -f to follow)
@@ -173,7 +176,7 @@ drestart              # Alias for 'dev restart'
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### Environment Variables (.env)
 
@@ -212,7 +215,7 @@ If ports 8080, 8081, or 3306 are already in use:
 
 ---
 
-## 🌐 Accessing Services
+## Accessing Services
 
 ### Symfony Application
 ```
@@ -245,7 +248,7 @@ dev shell mysql       # MySQL container
 
 ---
 
-## 💼 Common Tasks
+## Common Tasks
 
 ### Installing Composer Dependencies
 ```bash
@@ -262,6 +265,17 @@ dev symfony make:entity User
 
 # or using alias
 dsymfony cache:clear
+```
+
+### Setting Up Symfony Database
+```bash
+# Automated setup (creates DB, runs migrations, loads fixtures)
+dev setup-symfony
+
+# Or manually step by step:
+dev symfony doctrine:database:create
+dev symfony doctrine:migrations:migrate
+dev symfony doctrine:fixtures:load
 ```
 
 ### Creating Database Migrations
@@ -320,7 +334,7 @@ exit
 
 ---
 
-## 🔍 Troubleshooting
+## Troubleshooting
 
 ### Containers Won't Start
 
@@ -408,6 +422,24 @@ docker system prune -a  # WARNING: Removes all unused images
 dev rebuild
 ```
 
+### Complete Docker Reset
+
+**Nuclear option - removes everything:**
+```bash
+dev nuke  # Will prompt for confirmation
+
+# Or skip confirmation:
+dev nuke --force
+```
+
+This removes:
+* All project containers (running and stopped)
+* All project images
+* All project volumes (INCLUDING DATABASE DATA)
+* All build cache
+
+Note: Your Symfony code will NOT be deleted, but you will lose all database data.
+
 ### Can't Connect to Database from Symfony
 
 **Check DATABASE_URL in .env:**
@@ -422,7 +454,7 @@ dev symfony doctrine:query:sql "SELECT 1"
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 ```
 dev-environment/
 ├── docker/
@@ -447,12 +479,15 @@ dev-environment/
 
 ---
 
-## 🔄 Updating the Environment
+## Updating the Environment
 
 ### Pull Latest Changes
 ```bash
 git pull origin main
 dev rebuild
+
+# Or use the up command with rebuild:
+dev up --build
 ```
 
 ### Update Symfony Dependencies
@@ -469,7 +504,7 @@ dev start
 
 ---
 
-## 🛠️ Advanced Usage
+## Advanced Usage
 
 ### Running Custom Commands in Containers
 ```bash
@@ -505,35 +540,7 @@ dev rebuild
 
 ---
 
-## 🤝 Contributing
-
-If you're working in a team:
-
-1. **Share only these files via Git:**
-   - `docker/` directory (all Dockerfiles and configs)
-   - `docker-compose.yml`
-   - `.env.example` (NOT `.env`)
-   - `dev.py`
-   - `aliases`
-   - `README.md`
-
-2. **Don't commit:**
-   - `.env` (personal configuration)
-   - `projects/symfony-api/` (separate repository)
-   - `logs/` (local logs)
-   - Docker volumes
-
-3. **Each developer runs:**
-```bash
-   git clone <dev-environment-repo>
-   cd dev-environment
-   chmod +x dev.py
-   ./dev.py init
-```
-
----
-
-## 📚 Additional Resources
+## Additional Resources
 
 - [Symfony Documentation](https://symfony.com/doc/current/index.html)
 - [Docker Documentation](https://docs.docker.com/)
@@ -542,18 +549,36 @@ If you're working in a team:
 
 ---
 
-## 📄 License
+## License
 
-[Your License Here]
+MIT License
+
+Copyright (c) 2026
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ---
 
-## 👥 Support
+## Support
 
 For issues or questions:
 - Create an issue in this repository
 - Contact: [your-email@example.com]
 
 ---
-
-**Happy Coding! 🚀**
