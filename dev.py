@@ -107,6 +107,7 @@ Examples:
   %(prog)s init                    # Initialize the environment
   %(prog)s start                   # Start all containers
   %(prog)s composer install        # Run composer install
+  %(prog)s setup-symfony           # Setup Symfony database
   %(prog)s symfony cache:clear     # Clear Symfony cache
   %(prog)s shell php               # Open shell in PHP container
   %(prog)s logs nginx              # View Nginx logs
@@ -155,6 +156,9 @@ Examples:
     
     # aliases command
     subparsers.add_parser('aliases', help='Install bash aliases')
+
+    # setup-symfony command
+    subparsers.add_parser('setup-symfony', help='Run Symfony database setup (create DB, migrations, fixtures)')
 
     # nuke command
     nuke_parser = subparsers.add_parser('nuke', help='Complete Docker reset - remove all containers, images, volumes')
@@ -602,6 +606,67 @@ fi
     
     return True
 
+def cmd_setup_symfony(compose_cmd, project_root):
+    """Run complete Symfony database setup"""
+    print_header("Symfony Database Setup")
+    
+    # Check if container is running
+    container_name = "symfony-php"
+    check_cmd = f"docker ps --filter name={container_name} --format '{{{{.Names}}}}'"
+    result = run_command(check_cmd, capture_output=True)
+    
+    if not result or container_name not in result:
+        print_error(f"Container '{container_name}' is not running")
+        print_info("Start containers with: dev start")
+        return False
+    
+    # Check if Symfony project exists
+    symfony_project = project_root / 'projects' / 'symfony-api'
+    if not symfony_project.exists():
+        print_error("Symfony project not found at projects/symfony-api")
+        print_info("Run 'dev init' first to set up the project")
+        return False
+    
+    success = True
+    
+    # Step 1: Create database
+    print_info("\n[1/3] Creating database...")
+    cmd = "docker exec symfony-php php bin/console doctrine:database:create --if-not-exists"
+    if run_command(cmd, cwd=project_root, check=False):
+        print_success("Database created (or already exists)")
+    else:
+        print_error("Failed to create database")
+        success = False
+    
+    # Step 2: Run migrations
+    if success:
+        print_info("\n[2/3] Running migrations...")
+        cmd = "docker exec symfony-php php bin/console doctrine:migrations:migrate --no-interaction"
+        if run_command(cmd, cwd=project_root, check=False):
+            print_success("Migrations completed")
+        else:
+            print_error("Failed to run migrations")
+            success = False
+    
+    # Step 3: Load fixtures
+    if success:
+        print_info("\n[3/3] Loading fixtures...")
+        cmd = "docker exec symfony-php php bin/console doctrine:fixtures:load --no-interaction"
+        if run_command(cmd, cwd=project_root, check=False):
+            print_success("Fixtures loaded")
+        else:
+            print_warning("Failed to load fixtures (this is optional)")
+            print_info("You may not have fixtures configured, which is fine")
+    
+    if success:
+        print_header("Symfony Setup Complete!")
+        print_success("Database is ready with migrations and fixtures")
+    else:
+        print_header("Setup Incomplete")
+        print_warning("Some steps failed - check the errors above")
+    
+    return success
+
 def cmd_nuke(compose_cmd, project_root, force=False):
     """Complete Docker reset - nuclear option"""
     print_header("[!] NUCLEAR OPTION - Complete Docker Reset [!]")
@@ -761,6 +826,8 @@ if __name__ == "__main__":
         cmd_status(COMPOSE_CMD, PROJECT_ROOT)
     elif args.command == 'aliases':
         cmd_aliases(PROJECT_ROOT)
+    elif args.command == 'setup-symfony':
+        cmd_setup_symfony(COMPOSE_CMD, PROJECT_ROOT)
     elif args.command == 'nuke':
         cmd_nuke(COMPOSE_CMD, PROJECT_ROOT, args.force)
     elif args.command == 'up':
