@@ -77,6 +77,23 @@ services:
     depends_on:
       - mysql
 
+  # Dozzle - Real-time Docker log viewer
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: symfony-dozzle
+    restart: unless-stopped
+    ports:
+      - "${DOZZLE_PORT:-8082}:8080"
+    volumes:
+      # Mount Docker socket to access container logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      DOZZLE_LEVEL: info
+      DOZZLE_TAILSIZE: 300
+      DOZZLE_FILTER: "name=symfony-*"
+    networks:
+      - symfony-network
+
 # Define network for inter-container communication
 networks:
   symfony-network:

@@ -24,6 +24,7 @@ A Docker-based development environment for Symfony 6.4 API projects with Nginx, 
 - **Nginx + PHP-FPM** - Professional web server architecture
 - **MySQL 8.0** - Persistent database with custom configuration
 - **phpMyAdmin** - Web-based database management
+- **Dozzle** - Real-time Docker log viewer with web UI
 - **User ID Mapping** - Automatic permission handling (no root-owned files)
 - **Bash Aliases** - Quick shortcuts for common commands
 - **Hot Reload** - Code changes reflect immediately
@@ -80,6 +81,7 @@ This will:
 
 - **Symfony API**: http://localhost:8080
 - **phpMyAdmin**: http://localhost:8081
+- **Dozzle (Logs)**: http://localhost:8082
 
 ### 5. Reload Your Shell
 ```bash
@@ -196,6 +198,7 @@ MYSQL_PORT=3306
 # Ports (change if you have conflicts)
 NGINX_PORT=8080
 PHPMYADMIN_PORT=8081
+DOZZLE_PORT=8082
 
 # User ID Mapping (auto-detected)
 USER_ID=1000
@@ -208,7 +211,7 @@ GITHUB_BRANCH=main
 
 ### Changing Ports
 
-If ports 8080, 8081, or 3306 are already in use:
+If ports 8080, 8081, 8082, or 3306 are already in use:
 
 1. Edit `.env` and change the port numbers
 2. Restart containers: `dev restart`
@@ -226,8 +229,16 @@ http://localhost:8080
 ```
 http://localhost:8081
 
-Username: symfony (from MYSQL_USER in .env)
-Password: symfony (from MYSQL_PASSWORD in .env)
+Username: root
+Password: root
+```
+
+### Dozzle (Docker Log Viewer)
+```
+http://localhost:8082
+
+View real-time logs from all containers in a web interface.
+No authentication required (local development only).
 ```
 
 ### MySQL (External Client)
@@ -343,6 +354,7 @@ exit
 sudo lsof -i :8080
 sudo lsof -i :3306
 sudo lsof -i :8081
+sudo lsof -i :8082
 ```
 
 **Solution:** Change ports in `.env` and restart

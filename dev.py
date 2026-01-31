@@ -179,6 +179,7 @@ def cmd_start(compose_cmd, project_root):
         print_success("All containers started successfully!")
         print_info("Access your application at: http://localhost:8080")
         print_info("Access phpMyAdmin at: http://localhost:8081")
+        print_info("Access Dozzle (Logs) at: http://localhost:8082")
         return True
     else:
         print_error("Failed to start containers")
@@ -493,6 +494,7 @@ def cmd_init(compose_cmd, project_root):
     print_info("\nAccess your application:")
     print(f"  * Symfony: {Colors.OKBLUE}http://localhost:8080{Colors.ENDC}")
     print(f"  * phpMyAdmin: {Colors.OKBLUE}http://localhost:8081{Colors.ENDC}")
+    print(f"  * Dozzle (Logs): {Colors.OKBLUE}http://localhost:8082{Colors.ENDC}")
     print_info("\nUseful commands:")
     print("  * dev status          - View container status")
     print("  * dev logs -f         - Follow all logs")
@@ -772,7 +774,8 @@ def cmd_up(compose_cmd, project_root, build=False):
     print_info("\nAccess your application:")
     print(f"  * Symfony: {Colors.OKBLUE}http://localhost:8080{Colors.ENDC}")
     print(f"  * phpMyAdmin: {Colors.OKBLUE}http://localhost:8081{Colors.ENDC}")
-    
+    print(f"  * Dozzle (Logs): {Colors.OKBLUE}http://localhost:8082{Colors.ENDC}")
+
     return True
 
 # Main entry point will go here
