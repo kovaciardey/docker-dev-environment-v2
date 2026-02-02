@@ -134,6 +134,26 @@ services:
       - "traefik.http.routers.traefik.entrypoints=web"
       - "traefik.http.routers.traefik.service=api@internal"
 
+  # Vue3 Frontend Application
+  vue:
+    build:
+      context: ./docker/vue
+      dockerfile: Dockerfile
+      args:
+        USER_ID: ${USER_ID:-1000}
+        GROUP_ID: ${GROUP_ID:-1000}
+    container_name: symfony-vue
+    restart: unless-stopped
+    ports:
+      # Expose Vue CLI dev server on localhost:8083
+      - "8083:8080"
+    volumes:
+      # Mount Vue project directory
+      - ./projects/ape-management-frontend:/app
+    networks:
+      - symfony-network
+    command: sh -c "npm install && npm run serve"
+
 # Define network for inter-container communication
 networks:
   symfony-network:

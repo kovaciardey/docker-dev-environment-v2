@@ -22,7 +22,8 @@ A Docker-based development environment for Symfony 6.4 API projects with Nginx, 
 - **Containerized Development** - No host OS dependencies
 - **Python CLI Wrapper** - Simple commands for all Docker operations
 - **Traefik Reverse Proxy** - Domain-based routing with automatic service discovery
-- **Nginx + PHP-FPM** - Professional web server architecture
+- **Nginx + PHP-FPM** - Professional web server architecture for Symfony backend
+- **Vue3 + Vite** - Modern frontend development with hot module replacement
 - **MySQL 8.0** - Persistent database with custom configuration
 - **phpMyAdmin** - Web-based database management
 - **Dozzle** - Real-time Docker log viewer with web UI
@@ -267,6 +268,16 @@ Monitor routing rules, active services, and health status.
 No authentication required (local development only).
 ```
 
+### Vue3 Frontend Application
+```
+http://localhost:8083
+
+Vue3 development server with Vite.
+Hot module replacement (HMR) enabled - changes reflect instantly.
+```
+
+Note: Place your Vue3 project in `projects/vue-app/` directory.
+
 ### MySQL (External Client)
 ```
 Host: localhost
@@ -314,6 +325,40 @@ dev symfony doctrine:database:create
 dev symfony doctrine:migrations:migrate
 dev symfony doctrine:fixtures:load
 ```
+
+### Setting Up Vue3 Frontend
+
+**Option 1: Create a new Vue3 project**
+```bash
+cd projects/vue-app
+npm create vue@latest .
+```
+
+**Option 2: Clone an existing Vue3 project**
+```bash
+cd projects/vue-app
+git clone <your-vue-repo-url> .
+```
+
+**Important:** Ensure your `vite.config.js` includes:
+```javascript
+export default defineConfig({
+  server: {
+    host: '0.0.0.0',
+    port: 5173,
+    watch: {
+      usePolling: true
+    }
+  }
+})
+```
+
+After setting up, restart the container:
+```bash
+dev restart
+```
+
+Access at http://localhost:8083
 
 ### Creating Database Migrations
 ```bash
@@ -518,10 +563,13 @@ dev-environment/
 │   ├── nginx/
 │   │   ├── Dockerfile           # Nginx container
 │   │   └── default.conf         # Nginx configuration
+│   ├── vue/
+│   │   └── Dockerfile           # Vue3 container
 │   └── mysql/
 │       └── my.cnf               # MySQL custom config
 ├── projects/
-│   └── symfony-api/             # Your Symfony project (cloned)
+│   ├── symfony-api/             # Your Symfony project (cloned)
+│   └── vue-app/                 # Your Vue3 project
 ├── logs/
 │   └── nginx/                   # Nginx access/error logs
 ├── docker-compose.yml           # Orchestrates all services
