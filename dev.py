@@ -177,9 +177,10 @@ def cmd_start(compose_cmd, project_root):
     print_header("Starting Containers")
     if run_command(f"{compose_cmd} start", cwd=project_root):
         print_success("All containers started successfully!")
-        print_info("Access your application at: http://localhost:8080")
-        print_info("Access phpMyAdmin at: http://localhost:8081")
-        print_info("Access Dozzle (Logs) at: http://localhost:8082")
+        print_info("Access your application at: http://ape-management.api.andrei.dev.uk")
+        print_info("Access phpMyAdmin at: http://phpmyadmin.andrei.dev.uk")
+        print_info("Access Dozzle (Logs) at: http://dozzle.andrei.dev.uk")
+        print_info("Access Traefik Dashboard at: http://traefik.andrei.dev.uk")
         return True
     else:
         print_error("Failed to start containers")
@@ -492,9 +493,10 @@ def cmd_init(compose_cmd, project_root):
     print_header("Initialization Complete!")
     print_success("Development environment is ready!")
     print_info("\nAccess your application:")
-    print(f"  * Symfony: {Colors.OKBLUE}http://localhost:8080{Colors.ENDC}")
-    print(f"  * phpMyAdmin: {Colors.OKBLUE}http://localhost:8081{Colors.ENDC}")
-    print(f"  * Dozzle (Logs): {Colors.OKBLUE}http://localhost:8082{Colors.ENDC}")
+    print(f"  * Symfony: {Colors.OKBLUE}http://ape-management.api.andrei.dev.uk{Colors.ENDC}")
+    print(f"  * phpMyAdmin: {Colors.OKBLUE}http://phpmyadmin.andrei.dev.uk{Colors.ENDC}")
+    print(f"  * Dozzle (Logs): {Colors.OKBLUE}http://dozzle.andrei.dev.uk{Colors.ENDC}")
+    print(f"  * Traefik Dashboard: {Colors.OKBLUE}http://traefik.andrei.dev.uk{Colors.ENDC}")
     print_info("\nUseful commands:")
     print("  * dev status          - View container status")
     print("  * dev logs -f         - Follow all logs")
@@ -772,9 +774,10 @@ def cmd_up(compose_cmd, project_root, build=False):
     run_command(f"{compose_cmd} ps", cwd=project_root, check=False)
     
     print_info("\nAccess your application:")
-    print(f"  * Symfony: {Colors.OKBLUE}http://localhost:8080{Colors.ENDC}")
-    print(f"  * phpMyAdmin: {Colors.OKBLUE}http://localhost:8081{Colors.ENDC}")
-    print(f"  * Dozzle (Logs): {Colors.OKBLUE}http://localhost:8082{Colors.ENDC}")
+    print(f"  * Symfony: {Colors.OKBLUE}http://ape-management.api.andrei.dev.uk{Colors.ENDC}")
+    print(f"  * phpMyAdmin: {Colors.OKBLUE}http://phpmyadmin.andrei.dev.uk{Colors.ENDC}")
+    print(f"  * Dozzle (Logs): {Colors.OKBLUE}http://dozzle.andrei.dev.uk{Colors.ENDC}")
+    print(f"  * Traefik Dashboard: {Colors.OKBLUE}http://traefik.andrei.dev.uk{Colors.ENDC}")
 
     return True
 

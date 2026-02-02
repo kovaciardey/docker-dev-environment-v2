@@ -21,6 +21,7 @@ A Docker-based development environment for Symfony 6.4 API projects with Nginx, 
 
 - **Containerized Development** - No host OS dependencies
 - **Python CLI Wrapper** - Simple commands for all Docker operations
+- **Traefik Reverse Proxy** - Domain-based routing with automatic service discovery
 - **Nginx + PHP-FPM** - Professional web server architecture
 - **MySQL 8.0** - Persistent database with custom configuration
 - **phpMyAdmin** - Web-based database management
@@ -62,7 +63,27 @@ cd dev-environment
 chmod +x dev.py
 ```
 
-### 3. Initialize Environment
+### 3. Setup Local DNS
+
+Add the following entries to your hosts file:
+
+**On Linux/WSL:**
+```bash
+sudo nano /etc/hosts
+```
+
+**On Windows:**
+Edit `C:\Windows\System32\drivers\etc\hosts` (requires Administrator)
+
+Add these lines:
+```
+127.0.0.1 ape-management.api.andrei.dev.uk
+127.0.0.1 phpmyadmin.andrei.dev.uk
+127.0.0.1 dozzle.andrei.dev.uk
+127.0.0.1 traefik.andrei.dev.uk
+```
+
+### 4. Initialize Environment
 ```bash
 ./dev.py init
 ```
@@ -77,13 +98,14 @@ This will:
 - Run `composer install`
 - Install bash aliases
 
-### 4. Access Your Application
+### 5. Access Your Application
 
-- **Symfony API**: http://localhost:8080
-- **phpMyAdmin**: http://localhost:8081
-- **Dozzle (Logs)**: http://localhost:8082
+- **Symfony API**: http://ape-management.api.andrei.dev.uk
+- **phpMyAdmin**: http://phpmyadmin.andrei.dev.uk
+- **Dozzle (Logs)**: http://dozzle.andrei.dev.uk
+- **Traefik Dashboard**: http://traefik.andrei.dev.uk
 
-### 5. Reload Your Shell
+### 6. Reload Your Shell
 ```bash
 source ~/.bashrc
 ```
@@ -190,15 +212,6 @@ APP_SECRET=your-secret-key
 
 # MySQL
 MYSQL_ROOT_PASSWORD=root
-MYSQL_DATABASE=symfony
-MYSQL_USER=symfony
-MYSQL_PASSWORD=symfony
-MYSQL_PORT=3306
-
-# Ports (change if you have conflicts)
-NGINX_PORT=8080
-PHPMYADMIN_PORT=8081
-DOZZLE_PORT=8082
 
 # User ID Mapping (auto-detected)
 USER_ID=1000
@@ -209,25 +222,30 @@ GITHUB_REPO=https://github.com/yourusername/symfony-api.git
 GITHUB_BRANCH=main
 ```
 
-### Changing Ports
+### Custom Domains
 
-If ports 8080, 8081, 8082, or 3306 are already in use:
+All services are accessed via custom domains configured in your hosts file:
+- **Symfony API**: ape-management.api.andrei.dev.uk
+- **phpMyAdmin**: phpmyadmin.andrei.dev.uk
+- **Dozzle**: dozzle.andrei.dev.uk
+- **Traefik Dashboard**: traefik.andrei.dev.uk
 
-1. Edit `.env` and change the port numbers
-2. Restart containers: `dev restart`
+Traefik automatically routes traffic to the correct container based on the domain name.
 
 ---
 
 ## Accessing Services
 
+All services are accessible via custom domains through Traefik reverse proxy.
+
 ### Symfony Application
 ```
-http://localhost:8080
+http://ape-management.api.andrei.dev.uk
 ```
 
 ### phpMyAdmin
 ```
-http://localhost:8081
+http://phpmyadmin.andrei.dev.uk
 
 Username: root
 Password: root
@@ -235,9 +253,17 @@ Password: root
 
 ### Dozzle (Docker Log Viewer)
 ```
-http://localhost:8082
+http://dozzle.andrei.dev.uk
 
 View real-time logs from all containers in a web interface.
+No authentication required (local development only).
+```
+
+### Traefik Dashboard
+```
+http://traefik.andrei.dev.uk
+
+Monitor routing rules, active services, and health status.
 No authentication required (local development only).
 ```
 
@@ -349,15 +375,32 @@ exit
 
 ### Containers Won't Start
 
-**Check if ports are in use:**
+**Check if port 80 is in use:**
 ```bash
-sudo lsof -i :8080
+sudo lsof -i :80
 sudo lsof -i :3306
-sudo lsof -i :8081
-sudo lsof -i :8082
 ```
 
-**Solution:** Change ports in `.env` and restart
+**Solution:** Stop the service using port 80 or change Traefik's port in docker-compose.yml
+
+### Domain Not Working
+
+**Check hosts file:**
+Ensure your hosts file contains:
+```
+127.0.0.1 ape-management.api.andrei.dev.uk
+127.0.0.1 phpmyadmin.andrei.dev.uk
+127.0.0.1 dozzle.andrei.dev.uk
+127.0.0.1 traefik.andrei.dev.uk
+```
+
+**Check Traefik:**
+```bash
+dev logs traefik
+```
+
+**View routing rules:**
+Visit http://traefik.andrei.dev.uk to see active routes
 
 ### Permission Denied Errors
 

@@ -27,9 +27,6 @@ services:
       dockerfile: Dockerfile
     container_name: symfony-nginx
     restart: unless-stopped
-    ports:
-      # Map host port to container port
-      - "${NGINX_PORT:-8080}:80"
     volumes:
       # Mount same Symfony directory for serving static files
       - ./projects/symfony-api:/var/www/html
@@ -39,6 +36,11 @@ services:
       - symfony-network
     depends_on:
       - php
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.symfony.rule=Host(`ape-management.api.andrei.dev.uk`)"
+      - "traefik.http.routers.symfony.entrypoints=web"
+      - "traefik.http.services.symfony.loadbalancer.server.port=80"
 
   # MySQL database
   mysql:
@@ -64,8 +66,6 @@ services:
     image: phpmyadmin:latest
     container_name: symfony-phpmyadmin
     restart: unless-stopped
-    ports:
-      - "${PHPMYADMIN_PORT:-8081}:80"
     environment:
       PMA_HOST: mysql
       PMA_PORT: 3306
@@ -76,14 +76,17 @@ services:
       - symfony-network
     depends_on:
       - mysql
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.phpmyadmin.rule=Host(`phpmyadmin.andrei.dev.uk`)"
+      - "traefik.http.routers.phpmyadmin.entrypoints=web"
+      - "traefik.http.services.phpmyadmin.loadbalancer.server.port=80"
 
   # Dozzle - Real-time Docker log viewer
   dozzle:
     image: amir20/dozzle:latest
     container_name: symfony-dozzle
     restart: unless-stopped
-    ports:
-      - "${DOZZLE_PORT:-8082}:8080"
     volumes:
       # Mount Docker socket to access container logs
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -93,6 +96,43 @@ services:
       DOZZLE_FILTER: "name=symfony-*"
     networks:
       - symfony-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dozzle.rule=Host(`dozzle.andrei.dev.uk`)"
+      - "traefik.http.routers.dozzle.entrypoints=web"
+      - "traefik.http.services.dozzle.loadbalancer.server.port=8080"
+
+  # Traefik - Reverse proxy
+  traefik:
+    image: traefik:v3.0
+    container_name: symfony-traefik
+    restart: unless-stopped
+    command:
+      # Enable Docker provider
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      # Define entrypoints
+      - "--entrypoints.web.address=:80"
+      # Enable API and dashboard
+      - "--api.dashboard=true"
+      - "--api.insecure=false"
+      # Logging
+      - "--log.level=INFO"
+      - "--accesslog=true"
+    ports:
+      # HTTP port
+      - "80:80"
+    volumes:
+      # Mount Docker socket for service discovery
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - symfony-network
+    labels:
+      - "traefik.enable=true"
+      # Dashboard
+      - "traefik.http.routers.traefik.rule=Host(`traefik.andrei.dev.uk`)"
+      - "traefik.http.routers.traefik.entrypoints=web"
+      - "traefik.http.routers.traefik.service=api@internal"
 
 # Define network for inter-container communication
 networks:
