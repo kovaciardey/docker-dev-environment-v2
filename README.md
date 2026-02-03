@@ -23,7 +23,7 @@ A Docker-based development environment for Symfony 6.4 API projects with Nginx, 
 - **Python CLI Wrapper** - Simple commands for all Docker operations
 - **Traefik Reverse Proxy** - Domain-based routing with automatic service discovery
 - **Nginx + PHP-FPM** - Professional web server architecture for Symfony backend
-- **Vue3 + Vite** - Modern frontend development with hot module replacement
+- **Vue3 + Vue CLI** - Modern frontend development with hot module replacement
 - **MySQL 8.0** - Persistent database with custom configuration
 - **phpMyAdmin** - Web-based database management
 - **Dozzle** - Real-time Docker log viewer with web UI
@@ -78,6 +78,7 @@ Edit `C:\Windows\System32\drivers\etc\hosts` (requires Administrator)
 
 Add these lines:
 ```
+127.0.0.1 ape-management.andrei.dev.uk
 127.0.0.1 ape-management.api.andrei.dev.uk
 127.0.0.1 phpmyadmin.andrei.dev.uk
 127.0.0.1 dozzle.andrei.dev.uk
@@ -101,6 +102,7 @@ This will:
 
 ### 5. Access Your Application
 
+- **Vue Frontend**: http://ape-management.andrei.dev.uk
 - **Symfony API**: http://ape-management.api.andrei.dev.uk
 - **phpMyAdmin**: http://phpmyadmin.andrei.dev.uk
 - **Dozzle (Logs)**: http://dozzle.andrei.dev.uk
@@ -226,6 +228,7 @@ GITHUB_BRANCH=main
 ### Custom Domains
 
 All services are accessed via custom domains configured in your hosts file:
+- **Vue Frontend**: ape-management.andrei.dev.uk
 - **Symfony API**: ape-management.api.andrei.dev.uk
 - **phpMyAdmin**: phpmyadmin.andrei.dev.uk
 - **Dozzle**: dozzle.andrei.dev.uk
@@ -270,13 +273,13 @@ No authentication required (local development only).
 
 ### Vue3 Frontend Application
 ```
-http://localhost:8083
+http://ape-management.andrei.dev.uk
 
-Vue3 development server with Vite.
+Vue3 development server with Vue CLI.
 Hot module replacement (HMR) enabled - changes reflect instantly.
 ```
 
-Note: Place your Vue3 project in `projects/vue-app/` directory.
+Note: Place your Vue3 project in `projects/ape-management-frontend/` directory.
 
 ### MySQL (External Client)
 ```
@@ -328,26 +331,34 @@ dev symfony doctrine:fixtures:load
 
 ### Setting Up Vue3 Frontend
 
-**Option 1: Create a new Vue3 project**
+**Option 1: Create a new Vue3 project with Vue CLI**
 ```bash
-cd projects/vue-app
-npm create vue@latest .
+cd projects/ape-management-frontend
+vue create .
 ```
 
 **Option 2: Clone an existing Vue3 project**
 ```bash
-cd projects/vue-app
+cd projects/ape-management-frontend
 git clone <your-vue-repo-url> .
 ```
 
-**Important:** Ensure your `vite.config.js` includes:
+**Important:** For Vue CLI projects, ensure your `vue.config.js` includes:
 ```javascript
-export default defineConfig({
-  server: {
+const { defineConfig } = require('@vue/cli-service')
+module.exports = defineConfig({
+  transpileDependencies: true,
+  devServer: {
     host: '0.0.0.0',
-    port: 5173,
-    watch: {
-      usePolling: true
+    port: 8080,
+    allowedHosts: 'all',
+    client: {
+      webSocketURL: 'auto://0.0.0.0:0/ws'
+    }
+  },
+  configureWebpack: {
+    watchOptions: {
+      poll: true
     }
   }
 })
@@ -358,7 +369,7 @@ After setting up, restart the container:
 dev restart
 ```
 
-Access at http://localhost:8083
+Access at http://ape-management.andrei.dev.uk
 
 ### Creating Database Migrations
 ```bash
@@ -433,6 +444,7 @@ sudo lsof -i :3306
 **Check hosts file:**
 Ensure your hosts file contains:
 ```
+127.0.0.1 ape-management.andrei.dev.uk
 127.0.0.1 ape-management.api.andrei.dev.uk
 127.0.0.1 phpmyadmin.andrei.dev.uk
 127.0.0.1 dozzle.andrei.dev.uk
@@ -569,7 +581,7 @@ dev-environment/
 │       └── my.cnf               # MySQL custom config
 ├── projects/
 │   ├── symfony-api/             # Your Symfony project (cloned)
-│   └── vue-app/                 # Your Vue3 project
+│   └── ape-management-frontend/ # Your Vue3 project
 ├── logs/
 │   └── nginx/                   # Nginx access/error logs
 ├── docker-compose.yml           # Orchestrates all services

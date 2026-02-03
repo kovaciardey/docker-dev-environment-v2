@@ -144,15 +144,17 @@ services:
         GROUP_ID: ${GROUP_ID:-1000}
     container_name: symfony-vue
     restart: unless-stopped
-    ports:
-      # Expose Vue CLI dev server on localhost:8083
-      - "8083:8080"
     volumes:
       # Mount Vue project directory
       - ./projects/ape-management-frontend:/app
     networks:
       - symfony-network
     command: sh -c "npm install && npm run serve"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vue.rule=Host(`ape-management.andrei.dev.uk`)"
+      - "traefik.http.routers.vue.entrypoints=web"
+      - "traefik.http.services.vue.loadbalancer.server.port=8080"
 
 # Define network for inter-container communication
 networks:
