@@ -7,6 +7,7 @@ alias dev='python3 /path/to/dev-environment/dev.py'
 # Shortcut aliases
 alias dcomposer='python3 /path/to/dev-environment/dev.py composer'
 alias dsymfony='python3 /path/to/dev-environment/dev.py symfony'
+alias dnpm='python3 /path/to/dev-environment/dev.py npm'
 alias dshell='python3 /path/to/dev-environment/dev.py shell'
 alias dmysql='python3 /path/to/dev-environment/dev.py mysql'
 alias dlogs='python3 /path/to/dev-environment/dev.py logs'
