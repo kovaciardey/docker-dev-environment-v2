@@ -107,9 +107,11 @@ Examples:
   %(prog)s init                    # Initialize the environment
   %(prog)s start                   # Start all containers
   %(prog)s composer install        # Run composer install
+  %(prog)s npm install             # Run npm install in Vue container
   %(prog)s setup-symfony           # Setup Symfony database
   %(prog)s symfony cache:clear     # Clear Symfony cache
   %(prog)s shell php               # Open shell in PHP container
+  %(prog)s shell vue               # Open shell in Vue container
   %(prog)s logs nginx              # View Nginx logs
   %(prog)s up --build              # Start containers with rebuild
   %(prog)s nuke                    # Complete Docker cleanup
@@ -131,10 +133,14 @@ Examples:
     # composer command
     composer_parser = subparsers.add_parser('composer', help='Run Composer commands')
     composer_parser.add_argument('composer_args', nargs='*', help='Composer arguments')
-    
+
     # symfony command
     symfony_parser = subparsers.add_parser('symfony', help='Run Symfony console commands')
     symfony_parser.add_argument('symfony_args', nargs='*', help='Symfony console arguments')
+
+    # npm command
+    npm_parser = subparsers.add_parser('npm', help='Run NPM commands')
+    npm_parser.add_argument('npm_args', nargs='*', help='NPM arguments')
     
     # shell command
     shell_parser = subparsers.add_parser('shell', help='Open shell in container')
@@ -177,7 +183,8 @@ def cmd_start(compose_cmd, project_root):
     print_header("Starting Containers")
     if run_command(f"{compose_cmd} start", cwd=project_root):
         print_success("All containers started successfully!")
-        print_info("Access your application at: http://ape-management.api.andrei.dev.uk")
+        print_info("Access Vue Frontend at: http://ape-management.andrei.dev.uk")
+        print_info("Access Symfony API at: http://ape-management.api.andrei.dev.uk")
         print_info("Access phpMyAdmin at: http://phpmyadmin.andrei.dev.uk")
         print_info("Access Dozzle (Logs) at: http://dozzle.andrei.dev.uk")
         print_info("Access Traefik Dashboard at: http://traefik.andrei.dev.uk")
@@ -292,43 +299,60 @@ def cmd_composer(compose_cmd, project_root, composer_args):
 def cmd_symfony(compose_cmd, project_root, symfony_args):
     """Run Symfony console commands inside PHP container"""
     print_header("Running Symfony Console")
-    
+
     # Join symfony arguments
     args_str = ' '.join(symfony_args) if symfony_args else ''
-    
+
     if not args_str:
         print_error("No Symfony command specified")
         print_info("Example: dev symfony cache:clear")
         return False
-    
+
     cmd = f"docker exec -it symfony-php php bin/console {args_str}"
     print_info(f"Running: {cmd}\n")
-    
+
+    return run_command(cmd, cwd=project_root, check=False)
+
+def cmd_npm(compose_cmd, project_root, npm_args):
+    """Run NPM commands inside Vue container"""
+    print_header("Running NPM")
+
+    # Join npm arguments
+    args_str = ' '.join(npm_args) if npm_args else ''
+
+    if not args_str:
+        print_error("No NPM command specified")
+        print_info("Example: dev npm install")
+        return False
+
+    cmd = f"docker exec -it symfony-vue npm {args_str}"
+    print_info(f"Running: {cmd}\n")
+
     return run_command(cmd, cwd=project_root, check=False)
 
 def cmd_shell(compose_cmd, project_root, service='php'):
     """Open interactive shell in container"""
     print_header(f"Opening Shell: {service}")
-    
+
     container_name = f"symfony-{service}"
-    
+
     # Check if container exists and is running
     check_cmd = f"docker ps --filter name={container_name} --format '{{{{.Names}}}}'"
     result = run_command(check_cmd, capture_output=True)
-    
+
     if not result or container_name not in result:
         print_error(f"Container '{container_name}' is not running")
-        print_info("Available services: php, nginx, mysql, phpmyadmin")
+        print_info("Available services: php, nginx, mysql, vue")
         print_info("Start containers with: dev start")
         return False
-    
+
     # Determine shell to use (bash for most, sh for alpine-based images)
-    shell = 'sh' if service in ['nginx', 'phpmyadmin'] else 'bash'
-    
+    shell = 'sh' if service in ['nginx', 'vue'] else 'bash'
+
     cmd = f"docker exec -it {container_name} {shell}"
     print_info(f"Running: {cmd}")
     print_info("Type 'exit' to leave the shell\n")
-    
+
     return run_command(cmd, cwd=project_root, check=False)
 
 def cmd_mysql(compose_cmd, project_root):
@@ -431,25 +455,50 @@ def cmd_init(compose_cmd, project_root):
         print_info("\nEnter your Symfony project GitHub repository URL")
         github_repo = input("GitHub URL (or press Enter to skip cloning): ").strip()
     
-    # Step 5: Clone repository if URL provided
+    # Step 5: Clone Symfony repository if URL provided
     if github_repo and not symfony_project.exists():
-        print_info(f"\nCloning repository: {github_repo}")
+        print_info(f"\nCloning Symfony repository: {github_repo}")
         symfony_project.parent.mkdir(parents=True, exist_ok=True)
-        
+
         clone_cmd = f"git clone {github_repo} {symfony_project}"
         if not run_command(clone_cmd, cwd=project_root):
             print_error("Failed to clone repository")
             print_info("You can manually clone later into: projects/symfony-api")
         else:
-            print_success("Repository cloned successfully")
+            print_success("Symfony repository cloned successfully")
     elif symfony_project.exists():
-        print_info("Project directory already exists, skipping clone")
+        print_info("Symfony project directory already exists, skipping clone")
     else:
-        print_warning("No repository URL provided")
+        print_warning("No Symfony repository URL provided")
         print_info("You can manually clone your project into: projects/symfony-api")
         # Create empty directory
         symfony_project.mkdir(parents=True, exist_ok=True)
-    
+
+    # Step 5b: Ask for Vue repository
+    vue_project = project_root / 'projects' / 'ape-management-frontend'
+
+    if not vue_project.exists() or not any(vue_project.iterdir() if vue_project.exists() else []):
+        print_info("\nEnter your Vue project GitHub repository URL")
+        vue_repo = input("Vue GitHub URL (or press Enter to skip): ").strip()
+
+        if vue_repo:
+            print_info(f"Cloning Vue repository: {vue_repo}")
+            vue_project.parent.mkdir(parents=True, exist_ok=True)
+
+            clone_cmd = f"git clone {vue_repo} {vue_project}"
+            if not run_command(clone_cmd, cwd=project_root):
+                print_error("Failed to clone Vue repository")
+                print_info("You can manually clone later into: projects/ape-management-frontend")
+            else:
+                print_success("Vue repository cloned successfully")
+        else:
+            print_info("No Vue repository URL provided")
+            print_info("You can manually clone your Vue project into: projects/ape-management-frontend")
+            # Create empty directory
+            vue_project.mkdir(parents=True, exist_ok=True)
+    else:
+        print_info("Vue project directory already exists, skipping clone")
+
     # Step 6: Build Docker containers
     print_info("\nBuilding Docker containers (this may take several minutes)...")
     if not run_command(f"{compose_cmd} build", cwd=project_root):
@@ -493,7 +542,8 @@ def cmd_init(compose_cmd, project_root):
     print_header("Initialization Complete!")
     print_success("Development environment is ready!")
     print_info("\nAccess your application:")
-    print(f"  * Symfony: {Colors.OKBLUE}http://ape-management.api.andrei.dev.uk{Colors.ENDC}")
+    print(f"  * Vue Frontend: {Colors.OKBLUE}http://ape-management.andrei.dev.uk{Colors.ENDC}")
+    print(f"  * Symfony API: {Colors.OKBLUE}http://ape-management.api.andrei.dev.uk{Colors.ENDC}")
     print(f"  * phpMyAdmin: {Colors.OKBLUE}http://phpmyadmin.andrei.dev.uk{Colors.ENDC}")
     print(f"  * Dozzle (Logs): {Colors.OKBLUE}http://dozzle.andrei.dev.uk{Colors.ENDC}")
     print(f"  * Traefik Dashboard: {Colors.OKBLUE}http://traefik.andrei.dev.uk{Colors.ENDC}")
@@ -502,7 +552,8 @@ def cmd_init(compose_cmd, project_root):
     print("  * dev logs -f         - Follow all logs")
     print("  * dev composer [cmd]  - Run Composer commands")
     print("  * dev symfony [cmd]   - Run Symfony console")
-    print("  * dev shell           - Open shell in PHP container")
+    print("  * dev npm [cmd]       - Run NPM commands")
+    print("  * dev shell [service] - Open shell in container (php, vue, nginx, mysql)")
     print("  * dev mysql           - Open MySQL CLI")
     print_info("\nReload your shell or run: source ~/.bashrc")
     
@@ -603,6 +654,7 @@ fi
     print("  * dev              - Main dev.py command")
     print("  * dcomposer        - Shortcut for 'dev composer'")
     print("  * dsymfony         - Shortcut for 'dev symfony'")
+    print("  * dnpm             - Shortcut for 'dev npm'")
     print("  * dshell           - Shortcut for 'dev shell'")
     print("  * dmysql           - Shortcut for 'dev mysql'")
     print("  * dlogs            - Shortcut for 'dev logs'")
@@ -768,13 +820,14 @@ def cmd_up(compose_cmd, project_root, build=False):
         return False
     
     print_success("Containers started successfully")
-    
+
     # Show status
     print_info("\nContainer Status:")
     run_command(f"{compose_cmd} ps", cwd=project_root, check=False)
-    
+
     print_info("\nAccess your application:")
-    print(f"  * Symfony: {Colors.OKBLUE}http://ape-management.api.andrei.dev.uk{Colors.ENDC}")
+    print(f"  * Vue Frontend: {Colors.OKBLUE}http://ape-management.andrei.dev.uk{Colors.ENDC}")
+    print(f"  * Symfony API: {Colors.OKBLUE}http://ape-management.api.andrei.dev.uk{Colors.ENDC}")
     print(f"  * phpMyAdmin: {Colors.OKBLUE}http://phpmyadmin.andrei.dev.uk{Colors.ENDC}")
     print(f"  * Dozzle (Logs): {Colors.OKBLUE}http://dozzle.andrei.dev.uk{Colors.ENDC}")
     print(f"  * Traefik Dashboard: {Colors.OKBLUE}http://traefik.andrei.dev.uk{Colors.ENDC}")
@@ -822,6 +875,8 @@ if __name__ == "__main__":
         cmd_composer(COMPOSE_CMD, PROJECT_ROOT, args.composer_args)
     elif args.command == 'symfony':
         cmd_symfony(COMPOSE_CMD, PROJECT_ROOT, args.symfony_args)
+    elif args.command == 'npm':
+        cmd_npm(COMPOSE_CMD, PROJECT_ROOT, args.npm_args)
     elif args.command == 'shell':
         cmd_shell(COMPOSE_CMD, PROJECT_ROOT, args.service)
     elif args.command == 'mysql':
