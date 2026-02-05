@@ -97,6 +97,65 @@ def check_docker_compose():
         print_error("Docker Compose is not available!")
         return None
 
+def load_env_file(project_root):
+    """
+    Load and parse .env file
+    Returns dictionary of environment variables
+    """
+    env_file = project_root / '.env'
+    env_vars = {}
+
+    if not env_file.exists():
+        return env_vars
+
+    try:
+        with open(env_file, 'r') as f:
+            for line in f:
+                # Strip whitespace
+                line = line.strip()
+
+                # Skip empty lines and comments
+                if not line or line.startswith('#'):
+                    continue
+
+                # Parse KEY=VALUE
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
+
+                    # Remove surrounding quotes if present
+                    if value.startswith('"') and value.endswith('"'):
+                        value = value[1:-1]
+                    elif value.startswith("'") and value.endswith("'"):
+                        value = value[1:-1]
+
+                    env_vars[key] = value
+    except Exception as e:
+        print_warning(f"Error reading .env file: {e}")
+
+    return env_vars
+
+def is_placeholder_value(value):
+    """
+    Check if an environment variable value is a placeholder
+    Returns True if the value appears to be a placeholder that needs replacement
+    """
+    if not value:
+        return True
+
+    placeholder_indicators = [
+        'yourusername',
+        'your-username',
+        'placeholder',
+        'example.com',
+        'changeme',
+        'change-me',
+    ]
+
+    value_lower = value.lower()
+    return any(indicator in value_lower for indicator in placeholder_indicators)
+
 def create_parser():
     """Create and configure argument parser"""
     parser = argparse.ArgumentParser(
