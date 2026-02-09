@@ -195,6 +195,9 @@ def create_parser():
 Examples:
   %(prog)s init                    # Initialize the environment
   %(prog)s start                   # Start all containers
+  %(prog)s setup symfony           # Clone/reset Symfony project and run setup
+  %(prog)s setup vue               # Clone/reset Vue project and run setup
+  %(prog)s setup symfony --force   # Reset without confirmation prompts
   %(prog)s composer install        # Run composer install
   %(prog)s npm install             # Run npm install in Vue container
   %(prog)s setup-symfony           # Setup Symfony database
@@ -251,6 +254,12 @@ Examples:
     
     # aliases command
     subparsers.add_parser('aliases', help='Install bash aliases')
+
+    # setup command
+    setup_parser = subparsers.add_parser('setup', help='Clone/reset and setup a project')
+    setup_parser.add_argument('project', help='Project name (symfony, vue)')
+    setup_parser.add_argument('--force', action='store_true',
+                             help='Skip confirmation prompts')
 
     # setup-symfony command
     subparsers.add_parser('setup-symfony', help='Run Symfony database setup (create DB, migrations, fixtures)')
@@ -1111,6 +1120,8 @@ if __name__ == "__main__":
         cmd_status(COMPOSE_CMD, PROJECT_ROOT)
     elif args.command == 'aliases':
         cmd_aliases(PROJECT_ROOT)
+    elif args.command == 'setup':
+        cmd_setup(COMPOSE_CMD, PROJECT_ROOT, args.project, args.force)
     elif args.command == 'setup-symfony':
         cmd_setup_symfony(COMPOSE_CMD, PROJECT_ROOT)
     elif args.command == 'nuke':
