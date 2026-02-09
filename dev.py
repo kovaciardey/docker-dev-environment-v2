@@ -752,64 +752,74 @@ fi
     return True
 
 def cmd_setup_symfony(compose_cmd, project_root):
-    """Run complete Symfony database setup"""
-    print_header("Symfony Database Setup")
-    
+    """Run complete Symfony project setup (composer, database, migrations, fixtures)"""
+    print_header("Symfony Project Setup")
+
     # Check if container is running
     container_name = "symfony-php"
     check_cmd = f"docker ps --filter name={container_name} --format '{{{{.Names}}}}'"
     result = run_command(check_cmd, capture_output=True)
-    
+
     if not result or container_name not in result:
         print_error(f"Container '{container_name}' is not running")
         print_info("Start containers with: dev start")
         return False
-    
+
     # Check if Symfony project exists
     symfony_project = project_root / 'projects' / 'symfony-api'
     if not symfony_project.exists():
         print_error("Symfony project not found at projects/symfony-api")
-        print_info("Run 'dev init' first to set up the project")
+        print_info("Clone the project first with: dev setup symfony")
         return False
-    
+
     success = True
-    
-    # Step 1: Create database
-    print_info("\n[1/3] Creating database...")
+
+    # Step 1: Composer install
+    print_info("\n[1/4] Installing Composer dependencies...")
+    cmd = "docker exec symfony-php composer install"
+    if run_command(cmd, cwd=project_root, check=False):
+        print_success("Composer dependencies installed")
+    else:
+        print_error("Failed to install Composer dependencies")
+        success = False
+        return False  # Can't continue without dependencies
+
+    # Step 2: Create database
+    print_info("\n[2/4] Creating database...")
     cmd = "docker exec symfony-php php bin/console doctrine:database:create --if-not-exists"
     if run_command(cmd, cwd=project_root, check=False):
         print_success("Database created (or already exists)")
     else:
         print_error("Failed to create database")
         success = False
-    
-    # Step 2: Run migrations
+
+    # Step 3: Run migrations
     if success:
-        print_info("\n[2/3] Running migrations...")
+        print_info("\n[3/4] Running migrations...")
         cmd = "docker exec symfony-php php bin/console doctrine:migrations:migrate --no-interaction"
         if run_command(cmd, cwd=project_root, check=False):
             print_success("Migrations completed")
         else:
             print_error("Failed to run migrations")
             success = False
-    
-    # Step 3: Load fixtures
+
+    # Step 4: Load fixtures
     if success:
-        print_info("\n[3/3] Loading fixtures...")
+        print_info("\n[4/4] Loading fixtures...")
         cmd = "docker exec symfony-php php bin/console doctrine:fixtures:load --no-interaction"
         if run_command(cmd, cwd=project_root, check=False):
             print_success("Fixtures loaded")
         else:
             print_warning("Failed to load fixtures (this is optional)")
             print_info("You may not have fixtures configured, which is fine")
-    
+
     if success:
         print_header("Symfony Setup Complete!")
-        print_success("Database is ready with migrations and fixtures")
+        print_success("Project is ready with dependencies, database, migrations, and fixtures")
     else:
         print_header("Setup Incomplete")
         print_warning("Some steps failed - check the errors above")
-    
+
     return success
 
 def cmd_nuke(compose_cmd, project_root, force=False):
