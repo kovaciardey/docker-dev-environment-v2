@@ -93,14 +93,29 @@ Add these lines:
 This will:
 - Create `.env` file from `.env.example`
 - Auto-detect your user ID and group ID
-- Prompt for your Symfony project GitHub URL
-- Clone your Symfony repository
 - Build Docker containers (may take 5-10 minutes)
 - Start all containers
-- Run `composer install`
 - Install bash aliases
 
-### 5. Access Your Application
+### 5. Setup Your Projects
+
+After initialization, clone and setup your projects using the setup commands:
+
+```bash
+# Setup Symfony API project (clone + composer + database + migrations + fixtures)
+./dev.py setup symfony
+
+# Setup Vue Frontend project (clone + npm install)
+./dev.py setup vue
+```
+
+These commands will:
+- Prompt for repository URL if not configured in `.env`
+- Clone the project from Git
+- Install dependencies
+- Run project-specific setup steps
+
+### 6. Access Your Application
 
 - **Vue Frontend**: http://ape-management.andrei.dev.uk
 - **Symfony API**: http://ape-management.api.andrei.dev.uk
@@ -108,12 +123,12 @@ This will:
 - **Dozzle (Logs)**: http://dozzle.andrei.dev.uk
 - **Traefik Dashboard**: http://traefik.andrei.dev.uk
 
-### 6. Reload Your Shell
+### 7. Reload Your Shell
 ```bash
 source ~/.bashrc
 ```
 
-Now you can use short aliases like `dev`, `dcomposer`, `dsymfony`, etc.
+Now you can use short aliases like `dev`, `dcomposer`, `dsymfony`, `dsetup`, etc.
 
 ---
 
@@ -172,10 +187,18 @@ dev status            # Show container status
 dev nuke              # Complete Docker reset (use --force to skip prompt)
 ```
 
+### Project Setup Commands
+```bash
+dev setup symfony     # Clone/reset Symfony project and run full setup
+dev setup vue         # Clone/reset Vue project and run npm install
+dev setup <name> --force # Skip confirmation prompts when resetting
+```
+
 ### Development Commands
 ```bash
 dev composer [cmd]    # Run Composer commands
 dev symfony [cmd]     # Run Symfony console commands
+dev npm [cmd]         # Run NPM commands
 dev setup-symfony     # Run Symfony database setup (create DB, migrations, fixtures)
 dev shell [service]   # Open interactive shell (default: php)
 dev mysql             # Open MySQL CLI
@@ -192,6 +215,7 @@ dev aliases           # Install/reinstall bash aliases
 dev                   # Main command
 dcomposer             # Alias for 'dev composer'
 dsymfony              # Alias for 'dev symfony'
+dnpm                  # Alias for 'dev npm'
 dshell                # Alias for 'dev shell'
 dmysql                # Alias for 'dev mysql'
 dlogs                 # Alias for 'dev logs'
@@ -199,6 +223,7 @@ dstatus               # Alias for 'dev status'
 dstart                # Alias for 'dev start'
 dstop                 # Alias for 'dev stop'
 drestart              # Alias for 'dev restart'
+dsetup                # Alias for 'dev setup'
 ```
 
 ---
@@ -220,10 +245,30 @@ MYSQL_ROOT_PASSWORD=root
 USER_ID=1000
 GROUP_ID=1000
 
-# GitHub Repository
-GITHUB_REPO=https://github.com/yourusername/symfony-api.git
-GITHUB_BRANCH=main
+# Project Repositories (for dev setup commands)
+SYMFONY_REPO=https://github.com/yourusername/symfony-api.git
+VUE_REPO=https://github.com/yourusername/vue-frontend.git
 ```
+
+### Projects Configuration (projects.yml)
+
+The `projects.yml` file defines available projects for the setup command:
+```yaml
+projects:
+  symfony:
+    name: "Symfony API"
+    repo_env_var: SYMFONY_REPO
+    directory: projects/symfony-api
+    container: symfony-php
+
+  vue:
+    name: "Vue Frontend"
+    repo_env_var: VUE_REPO
+    directory: projects/ape-management-frontend
+    container: symfony-vue
+```
+
+You can add more projects by following this structure.
 
 ### Custom Domains
 
@@ -318,7 +363,28 @@ dev symfony make:entity User
 dsymfony cache:clear
 ```
 
-### Setting Up Symfony Database
+### Setting Up or Resetting Projects
+
+**Complete project setup (clone + dependencies + setup):**
+```bash
+# Setup Symfony (clone, composer install, database, migrations, fixtures)
+dev setup symfony
+
+# Setup Vue (clone, npm install)
+dev setup vue
+
+# Reset project (delete and re-clone) - prompts for confirmation
+dev setup symfony
+
+# Reset without confirmation
+dev setup symfony --force
+```
+
+**Note:** These commands will prompt you for the repository URL if not configured in `.env`, or if the URL appears to be a placeholder value.
+
+### Setting Up Symfony Database Only
+
+If you already have the project cloned and just need database setup:
 ```bash
 # Automated setup (creates DB, runs migrations, loads fixtures)
 dev setup-symfony
@@ -329,7 +395,9 @@ dev symfony doctrine:migrations:migrate
 dev symfony doctrine:fixtures:load
 ```
 
-### Setting Up Vue3 Frontend
+### Setting Up Vue3 Frontend Manually
+
+If you need to manually setup Vue instead of using `dev setup vue`:
 
 **Option 1: Create a new Vue3 project with Vue CLI**
 ```bash
@@ -580,12 +648,13 @@ dev-environment/
 │   └── mysql/
 │       └── my.cnf               # MySQL custom config
 ├── projects/
-│   ├── symfony-api/             # Your Symfony project (cloned)
-│   └── ape-management-frontend/ # Your Vue3 project
+│   ├── symfony-api/             # Your Symfony project (cloned via setup)
+│   └── ape-management-frontend/ # Your Vue3 project (cloned via setup)
 ├── logs/
 │   └── nginx/                   # Nginx access/error logs
 ├── docker-compose.yml           # Orchestrates all services
 ├── dev.py                       # Python CLI wrapper
+├── projects.yml                 # Project configuration for setup command
 ├── aliases                      # Bash aliases template
 ├── .env                         # Environment variables (created by init)
 ├── .env.example                 # Environment template

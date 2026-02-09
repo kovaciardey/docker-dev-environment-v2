@@ -10,6 +10,7 @@ import subprocess
 import argparse
 from pathlib import Path
 import shutil
+import yaml
 
 # Color codes for terminal output
 class Colors:
@@ -97,6 +98,94 @@ def check_docker_compose():
         print_error("Docker Compose is not available!")
         return None
 
+def load_env_file(project_root):
+    """
+    Load and parse .env file
+    Returns dictionary of environment variables
+    """
+    env_file = project_root / '.env'
+    env_vars = {}
+
+    if not env_file.exists():
+        return env_vars
+
+    try:
+        with open(env_file, 'r') as f:
+            for line in f:
+                # Strip whitespace
+                line = line.strip()
+
+                # Skip empty lines and comments
+                if not line or line.startswith('#'):
+                    continue
+
+                # Parse KEY=VALUE
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
+
+                    # Remove surrounding quotes if present
+                    if value.startswith('"') and value.endswith('"'):
+                        value = value[1:-1]
+                    elif value.startswith("'") and value.endswith("'"):
+                        value = value[1:-1]
+
+                    env_vars[key] = value
+    except Exception as e:
+        print_warning(f"Error reading .env file: {e}")
+
+    return env_vars
+
+def is_placeholder_value(value):
+    """
+    Check if an environment variable value is a placeholder
+    Returns True if the value appears to be a placeholder that needs replacement
+    """
+    if not value:
+        return True
+
+    placeholder_indicators = [
+        'yourusername',
+        'your-username',
+        'placeholder',
+        'example.com',
+        'changeme',
+        'change-me',
+    ]
+
+    value_lower = value.lower()
+    return any(indicator in value_lower for indicator in placeholder_indicators)
+
+def load_projects_config(project_root):
+    """
+    Load and parse projects.yml configuration file
+    Returns dictionary of project configurations
+    """
+    config_file = project_root / 'projects.yml'
+
+    if not config_file.exists():
+        print_error("projects.yml not found in project root")
+        print_info("Please ensure projects.yml exists with project configuration")
+        return None
+
+    try:
+        with open(config_file, 'r') as f:
+            config = yaml.safe_load(f)
+
+        if not config or 'projects' not in config:
+            print_error("Invalid projects.yml format - missing 'projects' key")
+            return None
+
+        return config['projects']
+
+    except yaml.YAMLError as e:
+        print_error(f"Error parsing projects.yml: {e}")
+        return None
+    except Exception as e:
+        print_error(f"Error reading projects.yml: {e}")
+        return None
+
 def create_parser():
     """Create and configure argument parser"""
     parser = argparse.ArgumentParser(
@@ -106,6 +195,9 @@ def create_parser():
 Examples:
   %(prog)s init                    # Initialize the environment
   %(prog)s start                   # Start all containers
+  %(prog)s setup symfony           # Clone/reset Symfony project and run setup
+  %(prog)s setup vue               # Clone/reset Vue project and run setup
+  %(prog)s setup symfony --force   # Reset without confirmation prompts
   %(prog)s composer install        # Run composer install
   %(prog)s npm install             # Run npm install in Vue container
   %(prog)s setup-symfony           # Setup Symfony database
@@ -162,6 +254,12 @@ Examples:
     
     # aliases command
     subparsers.add_parser('aliases', help='Install bash aliases')
+
+    # setup command
+    setup_parser = subparsers.add_parser('setup', help='Clone/reset and setup a project')
+    setup_parser.add_argument('project', help='Project name (symfony, vue)')
+    setup_parser.add_argument('--force', action='store_true',
+                             help='Skip confirmation prompts')
 
     # setup-symfony command
     subparsers.add_parser('setup-symfony', help='Run Symfony database setup (create DB, migrations, fixtures)')
@@ -547,6 +645,9 @@ def cmd_init(compose_cmd, project_root):
     print(f"  * phpMyAdmin: {Colors.OKBLUE}http://phpmyadmin.andrei.dev.uk{Colors.ENDC}")
     print(f"  * Dozzle (Logs): {Colors.OKBLUE}http://dozzle.andrei.dev.uk{Colors.ENDC}")
     print(f"  * Traefik Dashboard: {Colors.OKBLUE}http://traefik.andrei.dev.uk{Colors.ENDC}")
+    print_info("\nNext steps:")
+    print("  * dev setup symfony   - Clone and setup Symfony API project")
+    print("  * dev setup vue       - Clone and setup Vue Frontend project")
     print_info("\nUseful commands:")
     print("  * dev status          - View container status")
     print("  * dev logs -f         - Follow all logs")
@@ -658,70 +759,210 @@ fi
     print("  * dshell           - Shortcut for 'dev shell'")
     print("  * dmysql           - Shortcut for 'dev mysql'")
     print("  * dlogs            - Shortcut for 'dev logs'")
+    print("  * dstatus          - Shortcut for 'dev status'")
+    print("  * dstart           - Shortcut for 'dev start'")
+    print("  * dstop            - Shortcut for 'dev stop'")
+    print("  * drestart         - Shortcut for 'dev restart'")
+    print("  * dsetup           - Shortcut for 'dev setup'")
     print_info("\nReload your shell with: source ~/.bashrc")
     
     return True
 
 def cmd_setup_symfony(compose_cmd, project_root):
-    """Run complete Symfony database setup"""
-    print_header("Symfony Database Setup")
-    
+    """Run complete Symfony project setup (composer, database, migrations, fixtures)"""
+    print_header("Symfony Project Setup")
+
     # Check if container is running
     container_name = "symfony-php"
     check_cmd = f"docker ps --filter name={container_name} --format '{{{{.Names}}}}'"
     result = run_command(check_cmd, capture_output=True)
-    
+
     if not result or container_name not in result:
         print_error(f"Container '{container_name}' is not running")
         print_info("Start containers with: dev start")
         return False
-    
+
     # Check if Symfony project exists
     symfony_project = project_root / 'projects' / 'symfony-api'
     if not symfony_project.exists():
         print_error("Symfony project not found at projects/symfony-api")
-        print_info("Run 'dev init' first to set up the project")
+        print_info("Clone the project first with: dev setup symfony")
         return False
-    
+
     success = True
-    
-    # Step 1: Create database
-    print_info("\n[1/3] Creating database...")
+
+    # Step 1: Composer install
+    print_info("\n[1/4] Installing Composer dependencies...")
+    cmd = "docker exec symfony-php composer install"
+    if run_command(cmd, cwd=project_root, check=False):
+        print_success("Composer dependencies installed")
+    else:
+        print_error("Failed to install Composer dependencies")
+        success = False
+        return False  # Can't continue without dependencies
+
+    # Step 2: Create database
+    print_info("\n[2/4] Creating database...")
     cmd = "docker exec symfony-php php bin/console doctrine:database:create --if-not-exists"
     if run_command(cmd, cwd=project_root, check=False):
         print_success("Database created (or already exists)")
     else:
         print_error("Failed to create database")
         success = False
-    
-    # Step 2: Run migrations
+
+    # Step 3: Run migrations
     if success:
-        print_info("\n[2/3] Running migrations...")
+        print_info("\n[3/4] Running migrations...")
         cmd = "docker exec symfony-php php bin/console doctrine:migrations:migrate --no-interaction"
         if run_command(cmd, cwd=project_root, check=False):
             print_success("Migrations completed")
         else:
             print_error("Failed to run migrations")
             success = False
-    
-    # Step 3: Load fixtures
+
+    # Step 4: Load fixtures
     if success:
-        print_info("\n[3/3] Loading fixtures...")
+        print_info("\n[4/4] Loading fixtures...")
         cmd = "docker exec symfony-php php bin/console doctrine:fixtures:load --no-interaction"
         if run_command(cmd, cwd=project_root, check=False):
             print_success("Fixtures loaded")
         else:
             print_warning("Failed to load fixtures (this is optional)")
             print_info("You may not have fixtures configured, which is fine")
-    
+
     if success:
         print_header("Symfony Setup Complete!")
-        print_success("Database is ready with migrations and fixtures")
+        print_success("Project is ready with dependencies, database, migrations, and fixtures")
     else:
         print_header("Setup Incomplete")
         print_warning("Some steps failed - check the errors above")
-    
+
     return success
+
+def setup_vue_project(compose_cmd, project_root):
+    """
+    Run Vue project setup (npm install)
+    Helper function called by cmd_setup()
+    """
+    print_header("Vue Project Setup")
+
+    # Check if container is running
+    container_name = "symfony-vue"
+    check_cmd = f"docker ps --filter name={container_name} --format '{{{{.Names}}}}'"
+    result = run_command(check_cmd, capture_output=True)
+
+    if not result or container_name not in result:
+        print_error(f"Container '{container_name}' is not running")
+        print_info("Start containers with: dev start")
+        return False
+
+    # Check if Vue project exists
+    vue_project = project_root / 'projects' / 'ape-management-frontend'
+    if not vue_project.exists():
+        print_error("Vue project not found at projects/ape-management-frontend")
+        print_info("Clone the project first with: dev setup vue")
+        return False
+
+    # Run npm install
+    print_info("\nInstalling NPM dependencies...")
+    cmd = "docker exec symfony-vue npm install"
+    if run_command(cmd, cwd=project_root, check=False):
+        print_success("NPM dependencies installed")
+        print_header("Vue Setup Complete!")
+        print_success("Project is ready with all dependencies")
+        return True
+    else:
+        print_error("Failed to install NPM dependencies")
+        print_header("Setup Failed")
+        print_warning("NPM install failed - check the errors above")
+        return False
+
+def cmd_setup(compose_cmd, project_root, project_name, force=False):
+    """
+    Generic project setup/reset command
+    Handles cloning and setup for any project defined in projects.yml
+    """
+    print_header(f"Project Setup: {project_name}")
+
+    # Load projects configuration
+    projects_config = load_projects_config(project_root)
+    if not projects_config:
+        return False
+
+    # Validate project name
+    if project_name not in projects_config:
+        print_error(f"Unknown project: {project_name}")
+        print_info(f"Available projects: {', '.join(projects_config.keys())}")
+        return False
+
+    # Get project configuration
+    project_config = projects_config[project_name]
+    project_display_name = project_config['name']
+    repo_env_var = project_config['repo_env_var']
+    project_dir = project_root / project_config['directory']
+
+    print_info(f"Setting up: {project_display_name}")
+
+    # Load environment variables
+    env_vars = load_env_file(project_root)
+
+    # Get repository URL from .env
+    repo_url = env_vars.get(repo_env_var, '')
+
+    # Check if URL is valid or needs prompting
+    if not repo_url or is_placeholder_value(repo_url):
+        print_warning(f"{repo_env_var} not set or contains placeholder value")
+        print_info(f"Please enter the repository URL for {project_display_name}")
+        repo_url = input(f"{repo_env_var} URL: ").strip()
+
+        if not repo_url:
+            print_error("No repository URL provided")
+            print_info(f"Set {repo_env_var} in .env file or provide URL when prompted")
+            return False
+
+    # Check if project directory exists
+    if project_dir.exists():
+        if not force:
+            print_warning(f"Project directory already exists: {project_dir}")
+            print_info("This will DELETE the existing directory and re-clone the repository")
+            confirm = input("Continue? [y/N]: ").strip().lower()
+
+            if confirm != 'y':
+                print_info("Setup cancelled")
+                return False
+
+        # Delete existing directory
+        print_info(f"Removing existing directory: {project_dir}")
+        import shutil
+        try:
+            shutil.rmtree(project_dir)
+            print_success("Directory removed")
+        except Exception as e:
+            print_error(f"Failed to remove directory: {e}")
+            return False
+
+    # Clone repository
+    print_info(f"\nCloning repository from: {repo_url}")
+    project_dir.parent.mkdir(parents=True, exist_ok=True)
+
+    clone_cmd = f"git clone {repo_url} {project_dir}"
+    if not run_command(clone_cmd, cwd=project_root):
+        print_error("Failed to clone repository")
+        return False
+
+    print_success(f"Repository cloned successfully to {project_dir}")
+
+    # Call appropriate setup function based on project
+    print_info(f"\nRunning {project_display_name} setup...")
+
+    if project_name == 'symfony':
+        return cmd_setup_symfony(compose_cmd, project_root)
+    elif project_name == 'vue':
+        return setup_vue_project(compose_cmd, project_root)
+    else:
+        print_warning(f"No setup function defined for project: {project_name}")
+        print_success("Repository cloned, but no additional setup performed")
+        return True
 
 def cmd_nuke(compose_cmd, project_root, force=False):
     """Complete Docker reset - nuclear option"""
@@ -887,6 +1128,8 @@ if __name__ == "__main__":
         cmd_status(COMPOSE_CMD, PROJECT_ROOT)
     elif args.command == 'aliases':
         cmd_aliases(PROJECT_ROOT)
+    elif args.command == 'setup':
+        cmd_setup(COMPOSE_CMD, PROJECT_ROOT, args.project, args.force)
     elif args.command == 'setup-symfony':
         cmd_setup_symfony(COMPOSE_CMD, PROJECT_ROOT)
     elif args.command == 'nuke':

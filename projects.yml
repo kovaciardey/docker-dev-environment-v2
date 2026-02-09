@@ -1,0 +1,16 @@
+# Project Configuration
+# This file defines available projects for the dev environment
+# Each project can be setup/reset using: dev setup <project-name>
+
+projects:
+  symfony:
+    name: "Symfony API"
+    repo_env_var: SYMFONY_REPO
+    directory: projects/symfony-api
+    container: symfony-php
+
+  vue:
+    name: "Vue Frontend"
+    repo_env_var: VUE_REPO
+    directory: projects/ape-management-frontend
+    container: symfony-vue
