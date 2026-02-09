@@ -822,6 +822,44 @@ def cmd_setup_symfony(compose_cmd, project_root):
 
     return success
 
+def setup_vue_project(compose_cmd, project_root):
+    """
+    Run Vue project setup (npm install)
+    Helper function called by cmd_setup()
+    """
+    print_header("Vue Project Setup")
+
+    # Check if container is running
+    container_name = "symfony-vue"
+    check_cmd = f"docker ps --filter name={container_name} --format '{{{{.Names}}}}'"
+    result = run_command(check_cmd, capture_output=True)
+
+    if not result or container_name not in result:
+        print_error(f"Container '{container_name}' is not running")
+        print_info("Start containers with: dev start")
+        return False
+
+    # Check if Vue project exists
+    vue_project = project_root / 'projects' / 'ape-management-frontend'
+    if not vue_project.exists():
+        print_error("Vue project not found at projects/ape-management-frontend")
+        print_info("Clone the project first with: dev setup vue")
+        return False
+
+    # Run npm install
+    print_info("\nInstalling NPM dependencies...")
+    cmd = "docker exec symfony-vue npm install"
+    if run_command(cmd, cwd=project_root, check=False):
+        print_success("NPM dependencies installed")
+        print_header("Vue Setup Complete!")
+        print_success("Project is ready with all dependencies")
+        return True
+    else:
+        print_error("Failed to install NPM dependencies")
+        print_header("Setup Failed")
+        print_warning("NPM install failed - check the errors above")
+        return False
+
 def cmd_nuke(compose_cmd, project_root, force=False):
     """Complete Docker reset - nuclear option"""
     print_header("[!] NUCLEAR OPTION - Complete Docker Reset [!]")
