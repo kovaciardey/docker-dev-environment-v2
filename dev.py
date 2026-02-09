@@ -860,6 +860,93 @@ def setup_vue_project(compose_cmd, project_root):
         print_warning("NPM install failed - check the errors above")
         return False
 
+def cmd_setup(compose_cmd, project_root, project_name, force=False):
+    """
+    Generic project setup/reset command
+    Handles cloning and setup for any project defined in projects.yml
+    """
+    print_header(f"Project Setup: {project_name}")
+
+    # Load projects configuration
+    projects_config = load_projects_config(project_root)
+    if not projects_config:
+        return False
+
+    # Validate project name
+    if project_name not in projects_config:
+        print_error(f"Unknown project: {project_name}")
+        print_info(f"Available projects: {', '.join(projects_config.keys())}")
+        return False
+
+    # Get project configuration
+    project_config = projects_config[project_name]
+    project_display_name = project_config['name']
+    repo_env_var = project_config['repo_env_var']
+    project_dir = project_root / project_config['directory']
+
+    print_info(f"Setting up: {project_display_name}")
+
+    # Load environment variables
+    env_vars = load_env_file(project_root)
+
+    # Get repository URL from .env
+    repo_url = env_vars.get(repo_env_var, '')
+
+    # Check if URL is valid or needs prompting
+    if not repo_url or is_placeholder_value(repo_url):
+        print_warning(f"{repo_env_var} not set or contains placeholder value")
+        print_info(f"Please enter the repository URL for {project_display_name}")
+        repo_url = input(f"{repo_env_var} URL: ").strip()
+
+        if not repo_url:
+            print_error("No repository URL provided")
+            print_info(f"Set {repo_env_var} in .env file or provide URL when prompted")
+            return False
+
+    # Check if project directory exists
+    if project_dir.exists():
+        if not force:
+            print_warning(f"Project directory already exists: {project_dir}")
+            print_info("This will DELETE the existing directory and re-clone the repository")
+            confirm = input("Continue? [y/N]: ").strip().lower()
+
+            if confirm != 'y':
+                print_info("Setup cancelled")
+                return False
+
+        # Delete existing directory
+        print_info(f"Removing existing directory: {project_dir}")
+        import shutil
+        try:
+            shutil.rmtree(project_dir)
+            print_success("Directory removed")
+        except Exception as e:
+            print_error(f"Failed to remove directory: {e}")
+            return False
+
+    # Clone repository
+    print_info(f"\nCloning repository from: {repo_url}")
+    project_dir.parent.mkdir(parents=True, exist_ok=True)
+
+    clone_cmd = f"git clone {repo_url} {project_dir}"
+    if not run_command(clone_cmd, cwd=project_root):
+        print_error("Failed to clone repository")
+        return False
+
+    print_success(f"Repository cloned successfully to {project_dir}")
+
+    # Call appropriate setup function based on project
+    print_info(f"\nRunning {project_display_name} setup...")
+
+    if project_name == 'symfony':
+        return cmd_setup_symfony(compose_cmd, project_root)
+    elif project_name == 'vue':
+        return setup_vue_project(compose_cmd, project_root)
+    else:
+        print_warning(f"No setup function defined for project: {project_name}")
+        print_success("Repository cloned, but no additional setup performed")
+        return True
+
 def cmd_nuke(compose_cmd, project_root, force=False):
     """Complete Docker reset - nuclear option"""
     print_header("[!] NUCLEAR OPTION - Complete Docker Reset [!]")
