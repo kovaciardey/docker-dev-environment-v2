@@ -10,6 +10,7 @@ import subprocess
 import argparse
 from pathlib import Path
 import shutil
+import yaml
 
 # Color codes for terminal output
 class Colors:
@@ -155,6 +156,35 @@ def is_placeholder_value(value):
 
     value_lower = value.lower()
     return any(indicator in value_lower for indicator in placeholder_indicators)
+
+def load_projects_config(project_root):
+    """
+    Load and parse projects.yml configuration file
+    Returns dictionary of project configurations
+    """
+    config_file = project_root / 'projects.yml'
+
+    if not config_file.exists():
+        print_error("projects.yml not found in project root")
+        print_info("Please ensure projects.yml exists with project configuration")
+        return None
+
+    try:
+        with open(config_file, 'r') as f:
+            config = yaml.safe_load(f)
+
+        if not config or 'projects' not in config:
+            print_error("Invalid projects.yml format - missing 'projects' key")
+            return None
+
+        return config['projects']
+
+    except yaml.YAMLError as e:
+        print_error(f"Error parsing projects.yml: {e}")
+        return None
+    except Exception as e:
+        print_error(f"Error reading projects.yml: {e}")
+        return None
 
 def create_parser():
     """Create and configure argument parser"""
