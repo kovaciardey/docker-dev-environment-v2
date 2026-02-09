@@ -759,6 +759,11 @@ fi
     print("  * dshell           - Shortcut for 'dev shell'")
     print("  * dmysql           - Shortcut for 'dev mysql'")
     print("  * dlogs            - Shortcut for 'dev logs'")
+    print("  * dstatus          - Shortcut for 'dev status'")
+    print("  * dstart           - Shortcut for 'dev start'")
+    print("  * dstop            - Shortcut for 'dev stop'")
+    print("  * drestart         - Shortcut for 'dev restart'")
+    print("  * dsetup           - Shortcut for 'dev setup'")
     print_info("\nReload your shell with: source ~/.bashrc")
     
     return True
