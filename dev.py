@@ -630,7 +630,7 @@ def cmd_init(compose_cmd, project_root):
     
     # Step 10: Install bash aliases
     print_info("\nInstalling bash aliases...")
-    if cmd_aliases(project_root):
+    if cmd_aliases(project_root, from_init=True):
         print_success("Bash aliases installed")
     else:
         print_warning("Failed to install bash aliases")
@@ -660,69 +660,56 @@ def cmd_init(compose_cmd, project_root):
     
     return True
 
-def cmd_aliases(project_root):
-    """Install bash aliases to ~/.bash_aliases"""
+def cmd_aliases(project_root, from_init=False):
+    """
+    Install bash aliases to ~/.bash_aliases
+    The aliases file in the project root is the single source of truth.
+
+    Args:
+        project_root: Path to project root
+        from_init: True if called during init command, False if called manually
+    """
     print_header("Installing Bash Aliases")
-    
+
     # Path to aliases file in project
     aliases_file = project_root / 'aliases'
-    
+
     if not aliases_file.exists():
         print_error("aliases file not found in project root!")
         print_info("Please create the 'aliases' file first")
         return False
-    
+
     # Path to user's .bash_aliases
     home_dir = Path.home()
     bash_aliases = home_dir / '.bash_aliases'
     bashrc = home_dir / '.bashrc'
-    
-    # Read the aliases content
+
+    # Read the aliases content from source file
     with open(aliases_file, 'r') as f:
         aliases_content = f.read()
-    
+
     # Replace placeholder path with actual project path
     dev_py_path = project_root / 'dev.py'
     aliases_content = aliases_content.replace('/path/to/dev-environment/dev.py', str(dev_py_path))
-    
-    # Check if aliases already exist
-    marker = "# Symfony Dev Environment Aliases"
+
+    # Prompt user if .bash_aliases already exists (unless called from init and file doesn't exist)
     if bash_aliases.exists():
-        with open(bash_aliases, 'r') as f:
-            existing_content = f.read()
-        
-        if marker in existing_content:
-            print_warning("Aliases already installed in ~/.bash_aliases")
-            confirm = input("Overwrite existing aliases? (y/N): ").strip().lower()
-            if confirm != 'y':
-                print_info("Alias installation cancelled")
-                return False
-            
-            # Remove old aliases section
-            lines = existing_content.split('\n')
-            new_lines = []
-            skip = False
-            for line in lines:
-                if marker in line:
-                    skip = True
-                elif skip and line.strip() == '':
-                    skip = False
-                    continue
-                if not skip:
-                    new_lines.append(line)
-            
-            existing_content = '\n'.join(new_lines).strip() + '\n\n'
-        else:
-            existing_content = existing_content.strip() + '\n\n'
-    else:
-        existing_content = ''
-    
-    # Append new aliases
-    new_aliases = f"{marker}\n{aliases_content}\n"
-    
+        print_warning(f"\n{bash_aliases} already exists and will be completely replaced")
+        print_info("The 'aliases' file in your project is the single source of truth")
+        print_info("Any custom aliases should be added to the 'Custom aliases' section in the project's aliases file")
+        confirm = input("\nReplace ~/.bash_aliases with content from project aliases file? (y/N): ").strip().lower()
+
+        if confirm != 'y':
+            print_info("Alias installation cancelled")
+            return False
+    elif not from_init:
+        # File doesn't exist and not called from init - inform user
+        print_info("Creating new ~/.bash_aliases file")
+
+    # Write the entire aliases file content to ~/.bash_aliases (full replacement)
     with open(bash_aliases, 'w') as f:
-        f.write(existing_content + new_aliases)
-    
+        f.write(aliases_content)
+
     print_success(f"Aliases written to {bash_aliases}")
     
     # Ensure .bashrc sources .bash_aliases
@@ -751,7 +738,11 @@ fi
         print_info("Please ensure your shell sources ~/.bash_aliases")
     
     print_success("\nAliases installed successfully!")
-    print_info("\nAvailable aliases:")
+    print_info("\nTo add custom aliases:")
+    print(f"  1. Edit the 'aliases' file in: {project_root}")
+    print("  2. Add your aliases to the 'Custom aliases' section")
+    print("  3. Run 'dev aliases' to update ~/.bash_aliases")
+    print_info("\nAvailable dev aliases:")
     print("  * dev              - Main dev.py command")
     print("  * dcomposer        - Shortcut for 'dev composer'")
     print("  * dsymfony         - Shortcut for 'dev symfony'")
