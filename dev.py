@@ -759,114 +759,55 @@ fi
     
     return True
 
-def cmd_setup_symfony(compose_cmd, project_root):
-    """Run complete Symfony project setup (composer, database, migrations, fixtures)"""
-    print_header("Symfony Project Setup")
+def cmd_setup_steps(compose_cmd, project_root, project_name):
+    """
+    Run setup steps for a project without re-cloning.
+    Useful for re-running database setup, installing dependencies, etc.
+    Reads steps from projects.yml.
+    """
+    # Load projects configuration
+    projects_config = load_projects_config(project_root)
+    if not projects_config:
+        return False
+
+    if project_name not in projects_config:
+        print_error(f"Unknown project: {project_name}")
+        print_info(f"Available projects: {', '.join(projects_config.keys())}")
+        return False
+
+    project_config = projects_config[project_name]
+    project_display_name = project_config['name']
+    container_name = project_config['container']
+    setup_steps = project_config.get('setup_steps', [])
+
+    print_header(f"{project_display_name} Setup Steps")
 
     # Check if container is running
-    container_name = "symfony-php"
-    check_cmd = f"docker ps --filter name={container_name} --format '{{{{.Names}}}}'"
+    check_cmd = f"docker ps --filter name={container_name} --filter status=running --format '{{{{.Names}}}}'"
     result = run_command(check_cmd, capture_output=True)
 
-    if not result or container_name not in result:
+    if not result or container_name not in str(result):
         print_error(f"Container '{container_name}' is not running")
         print_info("Start containers with: dev start")
         return False
 
-    # Check if Symfony project exists
-    symfony_project = project_root / 'projects' / 'symfony-api'
-    if not symfony_project.exists():
-        print_error("Symfony project not found at projects/symfony-api")
-        print_info("Clone the project first with: dev setup symfony")
-        return False
-
-    success = True
-
-    # Step 1: Composer install
-    print_info("\n[1/4] Installing Composer dependencies...")
-    cmd = "docker exec symfony-php composer install"
-    if run_command(cmd, cwd=project_root, check=False):
-        print_success("Composer dependencies installed")
-    else:
-        print_error("Failed to install Composer dependencies")
-        success = False
-        return False  # Can't continue without dependencies
-
-    # Step 2: Create database
-    print_info("\n[2/4] Creating database...")
-    cmd = "docker exec symfony-php php bin/console doctrine:database:create --if-not-exists"
-    if run_command(cmd, cwd=project_root, check=False):
-        print_success("Database created (or already exists)")
-    else:
-        print_error("Failed to create database")
-        success = False
-
-    # Step 3: Run migrations
-    if success:
-        print_info("\n[3/4] Running migrations...")
-        cmd = "docker exec symfony-php php bin/console doctrine:migrations:migrate --no-interaction"
-        if run_command(cmd, cwd=project_root, check=False):
-            print_success("Migrations completed")
-        else:
-            print_error("Failed to run migrations")
-            success = False
-
-    # Step 4: Load fixtures
-    if success:
-        print_info("\n[4/4] Loading fixtures...")
-        cmd = "docker exec symfony-php php bin/console doctrine:fixtures:load --no-interaction"
-        if run_command(cmd, cwd=project_root, check=False):
-            print_success("Fixtures loaded")
-        else:
-            print_warning("Failed to load fixtures (this is optional)")
-            print_info("You may not have fixtures configured, which is fine")
-
-    if success:
-        print_header("Symfony Setup Complete!")
-        print_success("Project is ready with dependencies, database, migrations, and fixtures")
-    else:
-        print_header("Setup Incomplete")
-        print_warning("Some steps failed - check the errors above")
-
-    return success
-
-def setup_vue_project(compose_cmd, project_root):
-    """
-    Run Vue project setup (npm install)
-    Helper function called by cmd_setup()
-    """
-    print_header("Vue Project Setup")
-
-    # Check if container is running
-    container_name = "symfony-vue"
-    check_cmd = f"docker ps --filter name={container_name} --format '{{{{.Names}}}}'"
-    result = run_command(check_cmd, capture_output=True)
-
-    if not result or container_name not in result:
-        print_error(f"Container '{container_name}' is not running")
-        print_info("Start containers with: dev start")
-        return False
-
-    # Check if Vue project exists
-    vue_project = project_root / 'projects' / 'ape-management-frontend'
-    if not vue_project.exists():
-        print_error("Vue project not found at projects/ape-management-frontend")
-        print_info("Clone the project first with: dev setup vue")
-        return False
-
-    # Run npm install
-    print_info("\nInstalling NPM dependencies...")
-    cmd = "docker exec symfony-vue npm install"
-    if run_command(cmd, cwd=project_root, check=False):
-        print_success("NPM dependencies installed")
-        print_header("Vue Setup Complete!")
-        print_success("Project is ready with all dependencies")
+    if not setup_steps:
+        print_warning(f"No setup steps defined for {project_display_name}")
         return True
-    else:
-        print_error("Failed to install NPM dependencies")
-        print_header("Setup Failed")
-        print_warning("NPM install failed - check the errors above")
-        return False
+
+    total = len(setup_steps)
+    print_info(f"Running {total} setup step(s)...")
+
+    for i, step in enumerate(setup_steps, 1):
+        print_info(f"\n[{i}/{total}] Running: {step}")
+        cmd = f"docker exec {container_name} {step}"
+        if not run_command(cmd, check=False):
+            print_error(f"Setup step failed: {step}")
+            return False
+        print_success(f"Step {i}/{total} completed")
+
+    print_header(f"{project_display_name} Setup Complete!")
+    return True
 
 def cmd_setup(compose_cmd, project_root, project_name, force=False):
     """
@@ -1187,7 +1128,7 @@ if __name__ == "__main__":
     elif args.command == 'setup':
         cmd_setup(COMPOSE_CMD, PROJECT_ROOT, args.project, args.force)
     elif args.command == 'setup-symfony':
-        cmd_setup_symfony(COMPOSE_CMD, PROJECT_ROOT)
+        cmd_setup_steps(COMPOSE_CMD, PROJECT_ROOT, 'symfony')
     elif args.command == 'nuke':
         cmd_nuke(COMPOSE_CMD, PROJECT_ROOT, args.force)
     elif args.command == 'up':
