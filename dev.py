@@ -494,7 +494,8 @@ def cmd_init(compose_cmd, project_root):
     print_header("Initializing Development Environment")
     
     # Step 1: Check if already initialized
-    symfony_project = project_root / 'projects' / 'symfony-api'
+    symfony_mount = project_root / 'projects' / 'symfony-api'
+    symfony_project = symfony_mount / 'app'
     if symfony_project.exists() and any(symfony_project.iterdir()):
         print_warning("Project directory already exists!")
         confirm = input("Reinitialize? This will NOT delete existing code. (y/N): ").strip().lower()
@@ -556,24 +557,25 @@ def cmd_init(compose_cmd, project_root):
     # Step 5: Clone Symfony repository if URL provided
     if github_repo and not symfony_project.exists():
         print_info(f"\nCloning Symfony repository: {github_repo}")
-        symfony_project.parent.mkdir(parents=True, exist_ok=True)
+        symfony_mount.mkdir(parents=True, exist_ok=True)
 
         clone_cmd = f"git clone {github_repo} {symfony_project}"
         if not run_command(clone_cmd, cwd=project_root):
             print_error("Failed to clone repository")
-            print_info("You can manually clone later into: projects/symfony-api")
+            print_info("You can manually clone later into: projects/symfony-api/app")
         else:
             print_success("Symfony repository cloned successfully")
     elif symfony_project.exists():
         print_info("Symfony project directory already exists, skipping clone")
     else:
         print_warning("No Symfony repository URL provided")
-        print_info("You can manually clone your project into: projects/symfony-api")
-        # Create empty directory
-        symfony_project.mkdir(parents=True, exist_ok=True)
+        print_info("You can manually clone your project into: projects/symfony-api/app")
+        # Create mount point directory
+        symfony_mount.mkdir(parents=True, exist_ok=True)
 
     # Step 5b: Ask for Vue repository
-    vue_project = project_root / 'projects' / 'ape-management-frontend'
+    vue_mount = project_root / 'projects' / 'ape-management-frontend'
+    vue_project = vue_mount / 'app'
 
     if not vue_project.exists() or not any(vue_project.iterdir() if vue_project.exists() else []):
         print_info("\nEnter your Vue project GitHub repository URL")
@@ -581,19 +583,19 @@ def cmd_init(compose_cmd, project_root):
 
         if vue_repo:
             print_info(f"Cloning Vue repository: {vue_repo}")
-            vue_project.parent.mkdir(parents=True, exist_ok=True)
+            vue_mount.mkdir(parents=True, exist_ok=True)
 
             clone_cmd = f"git clone {vue_repo} {vue_project}"
             if not run_command(clone_cmd, cwd=project_root):
                 print_error("Failed to clone Vue repository")
-                print_info("You can manually clone later into: projects/ape-management-frontend")
+                print_info("You can manually clone later into: projects/ape-management-frontend/app")
             else:
                 print_success("Vue repository cloned successfully")
         else:
             print_info("No Vue repository URL provided")
-            print_info("You can manually clone your Vue project into: projects/ape-management-frontend")
-            # Create empty directory
-            vue_project.mkdir(parents=True, exist_ok=True)
+            print_info("You can manually clone your Vue project into: projects/ape-management-frontend/app")
+            # Create mount point directory
+            vue_mount.mkdir(parents=True, exist_ok=True)
     else:
         print_info("Vue project directory already exists, skipping clone")
 
