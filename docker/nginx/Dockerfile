@@ -5,7 +5,7 @@ FROM nginx:alpine
 COPY default.conf /etc/nginx/conf.d/default.conf
 
 # Create directory for Symfony public files
-RUN mkdir -p /var/www/html/public
+RUN mkdir -p /var/www/html/app/public
 
 # Expose port 80
 EXPOSE 80
