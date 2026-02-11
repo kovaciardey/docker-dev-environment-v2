@@ -391,8 +391,8 @@ def cmd_composer(compose_cmd, project_root, composer_args):
     
     cmd = f"docker exec -it symfony-php composer {args_str}"
     print_info(f"Running: {cmd}\n")
-    
-    return run_command(cmd, cwd=project_root, check=False)
+
+    return run_command(cmd, check=False)
 
 def cmd_symfony(compose_cmd, project_root, symfony_args):
     """Run Symfony console commands inside PHP container"""
@@ -409,7 +409,7 @@ def cmd_symfony(compose_cmd, project_root, symfony_args):
     cmd = f"docker exec -it symfony-php php bin/console {args_str}"
     print_info(f"Running: {cmd}\n")
 
-    return run_command(cmd, cwd=project_root, check=False)
+    return run_command(cmd, check=False)
 
 def cmd_npm(compose_cmd, project_root, npm_args):
     """Run NPM commands inside Vue container"""
@@ -426,7 +426,7 @@ def cmd_npm(compose_cmd, project_root, npm_args):
     cmd = f"docker exec -it symfony-vue npm {args_str}"
     print_info(f"Running: {cmd}\n")
 
-    return run_command(cmd, cwd=project_root, check=False)
+    return run_command(cmd, check=False)
 
 def cmd_shell(compose_cmd, project_root, service='php'):
     """Open interactive shell in container"""
@@ -451,7 +451,7 @@ def cmd_shell(compose_cmd, project_root, service='php'):
     print_info(f"Running: {cmd}")
     print_info("Type 'exit' to leave the shell\n")
 
-    return run_command(cmd, cwd=project_root, check=False)
+    return run_command(cmd, check=False)
 
 def cmd_mysql(compose_cmd, project_root):
     """Open MySQL CLI inside MySQL container"""
@@ -486,8 +486,8 @@ def cmd_mysql(compose_cmd, project_root):
     cmd = f"docker exec -it symfony-mysql mysql -u{mysql_user} -p{mysql_password} {mysql_database}"
     print_info(f"Connecting to database: {mysql_database}")
     print_info("Type 'exit' to leave MySQL CLI\n")
-    
-    return run_command(cmd, cwd=project_root, check=False)
+
+    return run_command(cmd, check=False)
 
 def cmd_init(compose_cmd, project_root):
     """Initialize the development environment"""
@@ -620,7 +620,7 @@ def cmd_init(compose_cmd, project_root):
     composer_json = symfony_project / 'composer.json'
     if composer_json.exists():
         print_info("\nRunning composer install...")
-        if run_command("docker exec symfony-php composer install", cwd=project_root, check=False):
+        if run_command("docker exec symfony-php composer install", check=False):
             print_success("Composer dependencies installed")
         else:
             print_warning("Composer install failed or was skipped")
