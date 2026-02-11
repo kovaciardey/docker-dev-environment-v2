@@ -11,7 +11,7 @@ services:
         GROUP_ID: ${GROUP_ID:-1000}
     container_name: symfony-php
     restart: unless-stopped
-    working_dir: /var/www/html
+    working_dir: /var/www/html/app
     volumes:
       # Mount Symfony project directory
       - ./projects/symfony-api:/var/www/html
@@ -144,6 +144,7 @@ services:
         GROUP_ID: ${GROUP_ID:-1000}
     container_name: symfony-vue
     restart: unless-stopped
+    working_dir: /app/app
     volumes:
       # Mount Vue project directory
       - ./projects/ape-management-frontend:/app

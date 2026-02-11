@@ -391,8 +391,8 @@ def cmd_composer(compose_cmd, project_root, composer_args):
     
     cmd = f"docker exec -it symfony-php composer {args_str}"
     print_info(f"Running: {cmd}\n")
-    
-    return run_command(cmd, cwd=project_root, check=False)
+
+    return run_command(cmd, check=False)
 
 def cmd_symfony(compose_cmd, project_root, symfony_args):
     """Run Symfony console commands inside PHP container"""
@@ -409,7 +409,7 @@ def cmd_symfony(compose_cmd, project_root, symfony_args):
     cmd = f"docker exec -it symfony-php php bin/console {args_str}"
     print_info(f"Running: {cmd}\n")
 
-    return run_command(cmd, cwd=project_root, check=False)
+    return run_command(cmd, check=False)
 
 def cmd_npm(compose_cmd, project_root, npm_args):
     """Run NPM commands inside Vue container"""
@@ -426,7 +426,7 @@ def cmd_npm(compose_cmd, project_root, npm_args):
     cmd = f"docker exec -it symfony-vue npm {args_str}"
     print_info(f"Running: {cmd}\n")
 
-    return run_command(cmd, cwd=project_root, check=False)
+    return run_command(cmd, check=False)
 
 def cmd_shell(compose_cmd, project_root, service='php'):
     """Open interactive shell in container"""
@@ -451,7 +451,7 @@ def cmd_shell(compose_cmd, project_root, service='php'):
     print_info(f"Running: {cmd}")
     print_info("Type 'exit' to leave the shell\n")
 
-    return run_command(cmd, cwd=project_root, check=False)
+    return run_command(cmd, check=False)
 
 def cmd_mysql(compose_cmd, project_root):
     """Open MySQL CLI inside MySQL container"""
@@ -486,15 +486,16 @@ def cmd_mysql(compose_cmd, project_root):
     cmd = f"docker exec -it symfony-mysql mysql -u{mysql_user} -p{mysql_password} {mysql_database}"
     print_info(f"Connecting to database: {mysql_database}")
     print_info("Type 'exit' to leave MySQL CLI\n")
-    
-    return run_command(cmd, cwd=project_root, check=False)
+
+    return run_command(cmd, check=False)
 
 def cmd_init(compose_cmd, project_root):
     """Initialize the development environment"""
     print_header("Initializing Development Environment")
     
     # Step 1: Check if already initialized
-    symfony_project = project_root / 'projects' / 'symfony-api'
+    symfony_mount = project_root / 'projects' / 'symfony-api'
+    symfony_project = symfony_mount / 'app'
     if symfony_project.exists() and any(symfony_project.iterdir()):
         print_warning("Project directory already exists!")
         confirm = input("Reinitialize? This will NOT delete existing code. (y/N): ").strip().lower()
@@ -556,24 +557,25 @@ def cmd_init(compose_cmd, project_root):
     # Step 5: Clone Symfony repository if URL provided
     if github_repo and not symfony_project.exists():
         print_info(f"\nCloning Symfony repository: {github_repo}")
-        symfony_project.parent.mkdir(parents=True, exist_ok=True)
+        symfony_mount.mkdir(parents=True, exist_ok=True)
 
         clone_cmd = f"git clone {github_repo} {symfony_project}"
         if not run_command(clone_cmd, cwd=project_root):
             print_error("Failed to clone repository")
-            print_info("You can manually clone later into: projects/symfony-api")
+            print_info("You can manually clone later into: projects/symfony-api/app")
         else:
             print_success("Symfony repository cloned successfully")
     elif symfony_project.exists():
         print_info("Symfony project directory already exists, skipping clone")
     else:
         print_warning("No Symfony repository URL provided")
-        print_info("You can manually clone your project into: projects/symfony-api")
-        # Create empty directory
-        symfony_project.mkdir(parents=True, exist_ok=True)
+        print_info("You can manually clone your project into: projects/symfony-api/app")
+        # Create mount point directory
+        symfony_mount.mkdir(parents=True, exist_ok=True)
 
     # Step 5b: Ask for Vue repository
-    vue_project = project_root / 'projects' / 'ape-management-frontend'
+    vue_mount = project_root / 'projects' / 'ape-management-frontend'
+    vue_project = vue_mount / 'app'
 
     if not vue_project.exists() or not any(vue_project.iterdir() if vue_project.exists() else []):
         print_info("\nEnter your Vue project GitHub repository URL")
@@ -581,19 +583,19 @@ def cmd_init(compose_cmd, project_root):
 
         if vue_repo:
             print_info(f"Cloning Vue repository: {vue_repo}")
-            vue_project.parent.mkdir(parents=True, exist_ok=True)
+            vue_mount.mkdir(parents=True, exist_ok=True)
 
             clone_cmd = f"git clone {vue_repo} {vue_project}"
             if not run_command(clone_cmd, cwd=project_root):
                 print_error("Failed to clone Vue repository")
-                print_info("You can manually clone later into: projects/ape-management-frontend")
+                print_info("You can manually clone later into: projects/ape-management-frontend/app")
             else:
                 print_success("Vue repository cloned successfully")
         else:
             print_info("No Vue repository URL provided")
-            print_info("You can manually clone your Vue project into: projects/ape-management-frontend")
-            # Create empty directory
-            vue_project.mkdir(parents=True, exist_ok=True)
+            print_info("You can manually clone your Vue project into: projects/ape-management-frontend/app")
+            # Create mount point directory
+            vue_mount.mkdir(parents=True, exist_ok=True)
     else:
         print_info("Vue project directory already exists, skipping clone")
 
@@ -620,7 +622,7 @@ def cmd_init(compose_cmd, project_root):
     composer_json = symfony_project / 'composer.json'
     if composer_json.exists():
         print_info("\nRunning composer install...")
-        if run_command("docker exec symfony-php composer install", cwd=project_root, check=False):
+        if run_command("docker exec symfony-php composer install", check=False):
             print_success("Composer dependencies installed")
         else:
             print_warning("Composer install failed or was skipped")
@@ -759,119 +761,70 @@ fi
     
     return True
 
-def cmd_setup_symfony(compose_cmd, project_root):
-    """Run complete Symfony project setup (composer, database, migrations, fixtures)"""
-    print_header("Symfony Project Setup")
+def cmd_setup_steps(compose_cmd, project_root, project_name):
+    """
+    Run setup steps for a project without re-cloning.
+    Useful for re-running database setup, installing dependencies, etc.
+    Reads steps from projects.yml.
+    """
+    # Load projects configuration
+    projects_config = load_projects_config(project_root)
+    if not projects_config:
+        return False
+
+    if project_name not in projects_config:
+        print_error(f"Unknown project: {project_name}")
+        print_info(f"Available projects: {', '.join(projects_config.keys())}")
+        return False
+
+    project_config = projects_config[project_name]
+    project_display_name = project_config['name']
+    container_name = project_config['container']
+    setup_steps = project_config.get('setup_steps', [])
+
+    print_header(f"{project_display_name} Setup Steps")
 
     # Check if container is running
-    container_name = "symfony-php"
-    check_cmd = f"docker ps --filter name={container_name} --format '{{{{.Names}}}}'"
+    check_cmd = f"docker ps --filter name={container_name} --filter status=running --format '{{{{.Names}}}}'"
     result = run_command(check_cmd, capture_output=True)
 
-    if not result or container_name not in result:
+    if not result or container_name not in str(result):
         print_error(f"Container '{container_name}' is not running")
         print_info("Start containers with: dev start")
         return False
 
-    # Check if Symfony project exists
-    symfony_project = project_root / 'projects' / 'symfony-api'
-    if not symfony_project.exists():
-        print_error("Symfony project not found at projects/symfony-api")
-        print_info("Clone the project first with: dev setup symfony")
-        return False
-
-    success = True
-
-    # Step 1: Composer install
-    print_info("\n[1/4] Installing Composer dependencies...")
-    cmd = "docker exec symfony-php composer install"
-    if run_command(cmd, cwd=project_root, check=False):
-        print_success("Composer dependencies installed")
-    else:
-        print_error("Failed to install Composer dependencies")
-        success = False
-        return False  # Can't continue without dependencies
-
-    # Step 2: Create database
-    print_info("\n[2/4] Creating database...")
-    cmd = "docker exec symfony-php php bin/console doctrine:database:create --if-not-exists"
-    if run_command(cmd, cwd=project_root, check=False):
-        print_success("Database created (or already exists)")
-    else:
-        print_error("Failed to create database")
-        success = False
-
-    # Step 3: Run migrations
-    if success:
-        print_info("\n[3/4] Running migrations...")
-        cmd = "docker exec symfony-php php bin/console doctrine:migrations:migrate --no-interaction"
-        if run_command(cmd, cwd=project_root, check=False):
-            print_success("Migrations completed")
-        else:
-            print_error("Failed to run migrations")
-            success = False
-
-    # Step 4: Load fixtures
-    if success:
-        print_info("\n[4/4] Loading fixtures...")
-        cmd = "docker exec symfony-php php bin/console doctrine:fixtures:load --no-interaction"
-        if run_command(cmd, cwd=project_root, check=False):
-            print_success("Fixtures loaded")
-        else:
-            print_warning("Failed to load fixtures (this is optional)")
-            print_info("You may not have fixtures configured, which is fine")
-
-    if success:
-        print_header("Symfony Setup Complete!")
-        print_success("Project is ready with dependencies, database, migrations, and fixtures")
-    else:
-        print_header("Setup Incomplete")
-        print_warning("Some steps failed - check the errors above")
-
-    return success
-
-def setup_vue_project(compose_cmd, project_root):
-    """
-    Run Vue project setup (npm install)
-    Helper function called by cmd_setup()
-    """
-    print_header("Vue Project Setup")
-
-    # Check if container is running
-    container_name = "symfony-vue"
-    check_cmd = f"docker ps --filter name={container_name} --format '{{{{.Names}}}}'"
-    result = run_command(check_cmd, capture_output=True)
-
-    if not result or container_name not in result:
-        print_error(f"Container '{container_name}' is not running")
-        print_info("Start containers with: dev start")
-        return False
-
-    # Check if Vue project exists
-    vue_project = project_root / 'projects' / 'ape-management-frontend'
-    if not vue_project.exists():
-        print_error("Vue project not found at projects/ape-management-frontend")
-        print_info("Clone the project first with: dev setup vue")
-        return False
-
-    # Run npm install
-    print_info("\nInstalling NPM dependencies...")
-    cmd = "docker exec symfony-vue npm install"
-    if run_command(cmd, cwd=project_root, check=False):
-        print_success("NPM dependencies installed")
-        print_header("Vue Setup Complete!")
-        print_success("Project is ready with all dependencies")
+    if not setup_steps:
+        print_warning(f"No setup steps defined for {project_display_name}")
         return True
-    else:
-        print_error("Failed to install NPM dependencies")
-        print_header("Setup Failed")
-        print_warning("NPM install failed - check the errors above")
-        return False
+
+    total = len(setup_steps)
+    print_info(f"Running {total} setup step(s)...")
+
+    for i, step in enumerate(setup_steps, 1):
+        print_info(f"\n[{i}/{total}] Running: {step}")
+        cmd = f"docker exec {container_name} {step}"
+        if not run_command(cmd, check=False):
+            print_error(f"Setup step failed: {step}")
+            return False
+        print_success(f"Step {i}/{total} completed")
+
+    print_header(f"{project_display_name} Setup Complete!")
+    return True
 
 def cmd_setup(compose_cmd, project_root, project_name, force=False):
     """
-    Generic project setup/reset command
-    Handles cloning and setup for any project defined in projects.yml
+    Generic project setup/reset command.
+    Handles cloning and setup for any project defined in projects.yml.
+
+    Flow:
+    1. Load config and validate
+    2. Get repo URL, warn user and confirm
+    3. Stop the project's container + related services
+    4. Delete the repo subdirectory (NOT the mount point)
+    5. Clone fresh repo into subdirectory
+    6. Start container + related services
+    7. Wait for container readiness
+    8. Run setup_steps via docker exec
     """
     print_header(f"Project Setup: {project_name}")
 
@@ -890,7 +843,15 @@ def cmd_setup(compose_cmd, project_root, project_name, force=False):
     project_config = projects_config[project_name]
     project_display_name = project_config['name']
     repo_env_var = project_config['repo_env_var']
-    project_dir = project_root / project_config['directory']
+    repo_subdir = project_config.get('repo_subdir', 'app')
+    container_name = project_config['container']
+    compose_service = project_config.get('compose_service', project_name)
+    related_services = project_config.get('related_services', [])
+    setup_steps = project_config.get('setup_steps', [])
+
+    # Compute paths
+    mount_point = project_root / project_config['directory']
+    repo_dir = mount_point / repo_subdir
 
     print_info(f"Setting up: {project_display_name}")
 
@@ -911,49 +872,96 @@ def cmd_setup(compose_cmd, project_root, project_name, force=False):
             print_info(f"Set {repo_env_var} in .env file or provide URL when prompted")
             return False
 
-    # Check if project directory exists
-    if project_dir.exists():
+    # Check if repo subdirectory exists and confirm deletion
+    if repo_dir.exists():
         if not force:
-            print_warning(f"Project directory already exists: {project_dir}")
-            print_info("This will DELETE the existing directory and re-clone the repository")
+            print_warning(f"Repository directory already exists: {repo_dir}")
+            print_info("This will DELETE the repository and re-clone it. Any uncommitted changes will be lost.")
             confirm = input("Continue? [y/N]: ").strip().lower()
 
             if confirm != 'y':
                 print_info("Setup cancelled")
                 return False
 
-        # Delete existing directory
-        print_info(f"Removing existing directory: {project_dir}")
-        import shutil
+    # Stop the project's container and related services
+    all_services = [compose_service] + related_services
+    print_info(f"Stopping containers: {', '.join(all_services)}")
+    for service in all_services:
+        run_command(f"{compose_cmd} stop {service}", cwd=project_root, check=False)
+
+    # Delete the repo subdirectory (NOT the mount point)
+    if repo_dir.exists():
+        print_info(f"Removing repository directory: {repo_dir}")
         try:
-            shutil.rmtree(project_dir)
+            shutil.rmtree(repo_dir)
             print_success("Directory removed")
+        except PermissionError:
+            print_warning("Permission error - cleaning up via Docker...")
+            mount_point_abs = mount_point.resolve()
+            cleanup_cmd = (
+                f"docker run --rm -v {mount_point_abs}:/cleanup alpine "
+                f"sh -c 'rm -rf /cleanup/{repo_subdir}'"
+            )
+            if not run_command(cleanup_cmd, check=False):
+                print_error("Failed to remove directory even with Docker cleanup")
+                return False
+            print_success("Directory removed via Docker cleanup")
         except Exception as e:
             print_error(f"Failed to remove directory: {e}")
             return False
 
-    # Clone repository
-    print_info(f"\nCloning repository from: {repo_url}")
-    project_dir.parent.mkdir(parents=True, exist_ok=True)
+    # Ensure mount point exists and clone repository
+    mount_point.mkdir(parents=True, exist_ok=True)
 
-    clone_cmd = f"git clone {repo_url} {project_dir}"
-    if not run_command(clone_cmd, cwd=project_root):
+    print_info(f"\nCloning repository from: {repo_url}")
+    clone_cmd = f"git clone {repo_url} {repo_dir}"
+    if not run_command(clone_cmd):
         print_error("Failed to clone repository")
         return False
+    print_success(f"Repository cloned to {repo_dir}")
 
-    print_success(f"Repository cloned successfully to {project_dir}")
+    # Start container and related services
+    print_info(f"\nStarting containers: {', '.join(all_services)}")
+    for service in all_services:
+        run_command(f"{compose_cmd} start {service}", cwd=project_root, check=False)
 
-    # Call appropriate setup function based on project
-    print_info(f"\nRunning {project_display_name} setup...")
+    # Wait for the project's container to be ready
+    import time
+    print_info(f"Waiting for {container_name} to be ready...")
+    max_retries = 15
+    container_ready = False
+    for i in range(max_retries):
+        check_cmd = f"docker ps --filter name={container_name} --filter status=running --format '{{{{.Names}}}}'"
+        result = run_command(check_cmd, capture_output=True)
+        if result and container_name in str(result):
+            print_success(f"Container {container_name} is running")
+            container_ready = True
+            break
+        time.sleep(2)
 
-    if project_name == 'symfony':
-        return cmd_setup_symfony(compose_cmd, project_root)
-    elif project_name == 'vue':
-        return setup_vue_project(compose_cmd, project_root)
-    else:
-        print_warning(f"No setup function defined for project: {project_name}")
-        print_success("Repository cloned, but no additional setup performed")
+    if not container_ready:
+        print_error(f"Container {container_name} failed to start within {max_retries * 2}s")
+        return False
+
+    # Run setup steps
+    if not setup_steps:
+        print_success(f"{project_display_name} setup complete (no setup steps defined)")
         return True
+
+    total = len(setup_steps)
+    print_info(f"\nRunning {total} setup step(s)...")
+
+    for i, step in enumerate(setup_steps, 1):
+        print_info(f"\n[{i}/{total}] Running: {step}")
+        cmd = f"docker exec {container_name} {step}"
+        if not run_command(cmd, check=False):
+            print_error(f"Setup step failed: {step}")
+            return False
+        print_success(f"Step {i}/{total} completed")
+
+    print_header(f"{project_display_name} Setup Complete!")
+    print_success("Project is ready")
+    return True
 
 def cmd_nuke(compose_cmd, project_root, force=False):
     """Complete Docker reset - nuclear option"""
@@ -1122,7 +1130,7 @@ if __name__ == "__main__":
     elif args.command == 'setup':
         cmd_setup(COMPOSE_CMD, PROJECT_ROOT, args.project, args.force)
     elif args.command == 'setup-symfony':
-        cmd_setup_symfony(COMPOSE_CMD, PROJECT_ROOT)
+        cmd_setup_steps(COMPOSE_CMD, PROJECT_ROOT, 'symfony')
     elif args.command == 'nuke':
         cmd_nuke(COMPOSE_CMD, PROJECT_ROOT, args.force)
     elif args.command == 'up':
