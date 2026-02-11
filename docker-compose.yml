@@ -104,7 +104,7 @@ services:
 
   # Traefik - Reverse proxy
   traefik:
-    image: traefik:v3.0
+    image: traefik:v3.6
     container_name: symfony-traefik
     restart: unless-stopped
     command:
