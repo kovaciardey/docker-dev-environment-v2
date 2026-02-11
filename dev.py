@@ -870,8 +870,18 @@ def setup_vue_project(compose_cmd, project_root):
 
 def cmd_setup(compose_cmd, project_root, project_name, force=False):
     """
-    Generic project setup/reset command
-    Handles cloning and setup for any project defined in projects.yml
+    Generic project setup/reset command.
+    Handles cloning and setup for any project defined in projects.yml.
+
+    Flow:
+    1. Load config and validate
+    2. Get repo URL, warn user and confirm
+    3. Stop the project's container + related services
+    4. Delete the repo subdirectory (NOT the mount point)
+    5. Clone fresh repo into subdirectory
+    6. Start container + related services
+    7. Wait for container readiness
+    8. Run setup_steps via docker exec
     """
     print_header(f"Project Setup: {project_name}")
 
@@ -890,7 +900,15 @@ def cmd_setup(compose_cmd, project_root, project_name, force=False):
     project_config = projects_config[project_name]
     project_display_name = project_config['name']
     repo_env_var = project_config['repo_env_var']
-    project_dir = project_root / project_config['directory']
+    repo_subdir = project_config.get('repo_subdir', 'app')
+    container_name = project_config['container']
+    compose_service = project_config.get('compose_service', project_name)
+    related_services = project_config.get('related_services', [])
+    setup_steps = project_config.get('setup_steps', [])
+
+    # Compute paths
+    mount_point = project_root / project_config['directory']
+    repo_dir = mount_point / repo_subdir
 
     print_info(f"Setting up: {project_display_name}")
 
@@ -911,49 +929,96 @@ def cmd_setup(compose_cmd, project_root, project_name, force=False):
             print_info(f"Set {repo_env_var} in .env file or provide URL when prompted")
             return False
 
-    # Check if project directory exists
-    if project_dir.exists():
+    # Check if repo subdirectory exists and confirm deletion
+    if repo_dir.exists():
         if not force:
-            print_warning(f"Project directory already exists: {project_dir}")
-            print_info("This will DELETE the existing directory and re-clone the repository")
+            print_warning(f"Repository directory already exists: {repo_dir}")
+            print_info("This will DELETE the repository and re-clone it. Any uncommitted changes will be lost.")
             confirm = input("Continue? [y/N]: ").strip().lower()
 
             if confirm != 'y':
                 print_info("Setup cancelled")
                 return False
 
-        # Delete existing directory
-        print_info(f"Removing existing directory: {project_dir}")
-        import shutil
+    # Stop the project's container and related services
+    all_services = [compose_service] + related_services
+    print_info(f"Stopping containers: {', '.join(all_services)}")
+    for service in all_services:
+        run_command(f"{compose_cmd} stop {service}", cwd=project_root, check=False)
+
+    # Delete the repo subdirectory (NOT the mount point)
+    if repo_dir.exists():
+        print_info(f"Removing repository directory: {repo_dir}")
         try:
-            shutil.rmtree(project_dir)
+            shutil.rmtree(repo_dir)
             print_success("Directory removed")
+        except PermissionError:
+            print_warning("Permission error - cleaning up via Docker...")
+            mount_point_abs = mount_point.resolve()
+            cleanup_cmd = (
+                f"docker run --rm -v {mount_point_abs}:/cleanup alpine "
+                f"sh -c 'rm -rf /cleanup/{repo_subdir}'"
+            )
+            if not run_command(cleanup_cmd, check=False):
+                print_error("Failed to remove directory even with Docker cleanup")
+                return False
+            print_success("Directory removed via Docker cleanup")
         except Exception as e:
             print_error(f"Failed to remove directory: {e}")
             return False
 
-    # Clone repository
-    print_info(f"\nCloning repository from: {repo_url}")
-    project_dir.parent.mkdir(parents=True, exist_ok=True)
+    # Ensure mount point exists and clone repository
+    mount_point.mkdir(parents=True, exist_ok=True)
 
-    clone_cmd = f"git clone {repo_url} {project_dir}"
-    if not run_command(clone_cmd, cwd=project_root):
+    print_info(f"\nCloning repository from: {repo_url}")
+    clone_cmd = f"git clone {repo_url} {repo_dir}"
+    if not run_command(clone_cmd):
         print_error("Failed to clone repository")
         return False
+    print_success(f"Repository cloned to {repo_dir}")
 
-    print_success(f"Repository cloned successfully to {project_dir}")
+    # Start container and related services
+    print_info(f"\nStarting containers: {', '.join(all_services)}")
+    for service in all_services:
+        run_command(f"{compose_cmd} start {service}", cwd=project_root, check=False)
 
-    # Call appropriate setup function based on project
-    print_info(f"\nRunning {project_display_name} setup...")
+    # Wait for the project's container to be ready
+    import time
+    print_info(f"Waiting for {container_name} to be ready...")
+    max_retries = 15
+    container_ready = False
+    for i in range(max_retries):
+        check_cmd = f"docker ps --filter name={container_name} --filter status=running --format '{{{{.Names}}}}'"
+        result = run_command(check_cmd, capture_output=True)
+        if result and container_name in str(result):
+            print_success(f"Container {container_name} is running")
+            container_ready = True
+            break
+        time.sleep(2)
 
-    if project_name == 'symfony':
-        return cmd_setup_symfony(compose_cmd, project_root)
-    elif project_name == 'vue':
-        return setup_vue_project(compose_cmd, project_root)
-    else:
-        print_warning(f"No setup function defined for project: {project_name}")
-        print_success("Repository cloned, but no additional setup performed")
+    if not container_ready:
+        print_error(f"Container {container_name} failed to start within {max_retries * 2}s")
+        return False
+
+    # Run setup steps
+    if not setup_steps:
+        print_success(f"{project_display_name} setup complete (no setup steps defined)")
         return True
+
+    total = len(setup_steps)
+    print_info(f"\nRunning {total} setup step(s)...")
+
+    for i, step in enumerate(setup_steps, 1):
+        print_info(f"\n[{i}/{total}] Running: {step}")
+        cmd = f"docker exec {container_name} {step}"
+        if not run_command(cmd, check=False):
+            print_error(f"Setup step failed: {step}")
+            return False
+        print_success(f"Step {i}/{total} completed")
+
+    print_header(f"{project_display_name} Setup Complete!")
+    print_success("Project is ready")
+    return True
 
 def cmd_nuke(compose_cmd, project_root, force=False):
     """Complete Docker reset - nuclear option"""
