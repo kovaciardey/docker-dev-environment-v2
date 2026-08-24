@@ -51,7 +51,7 @@ RUN echo "memory_limit=256M" >> "$PHP_INI_DIR/conf.d/custom.ini" \
     && echo "upload_max_filesize=20M" >> "$PHP_INI_DIR/conf.d/custom.ini" \
     && echo "post_max_size=20M" >> "$PHP_INI_DIR/conf.d/custom.ini" \
     && echo "max_execution_time=300" >> "$PHP_INI_DIR/conf.d/custom.ini" \
-    && echo "date.timezone=UTC" >> "$PHP_INI_DIR/conf.d/custom.ini" \
+    && echo "date.timezone=Europe/London" >> "$PHP_INI_DIR/conf.d/custom.ini" \
     && echo "realpath_cache_size=4096K" >> "$PHP_INI_DIR/conf.d/custom.ini" \
     && echo "realpath_cache_ttl=600" >> "$PHP_INI_DIR/conf.d/custom.ini"
 
