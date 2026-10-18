@@ -454,7 +454,10 @@ def cmd_shell(compose_cmd, project_root, service='php'):
     return run_command(cmd, check=False)
 
 def cmd_mysql(compose_cmd, project_root):
-    """Open MySQL CLI inside MySQL container"""
+    """
+    Connects as root (password from MYSQL_ROOT_PASSWORD in .env) to the ape-management db
+    TODO: perhaps extend it to be able to specify a different db/user-pw combination
+    """
     print_header("Opening MySQL CLI")
     
     # Check if MySQL container is running
@@ -467,21 +470,11 @@ def cmd_mysql(compose_cmd, project_root):
         return False
     
     # Get MySQL credentials from .env file
-    env_file = project_root / '.env'
-    mysql_user = 'symfony'
-    mysql_password = 'symfony'
-    mysql_database = 'symfony'
-    
-    if env_file.exists():
-        with open(env_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith('MYSQL_USER='):
-                    mysql_user = line.split('=', 1)[1]
-                elif line.startswith('MYSQL_PASSWORD='):
-                    mysql_password = line.split('=', 1)[1]
-                elif line.startswith('MYSQL_DATABASE='):
-                    mysql_database = line.split('=', 1)[1]
+    env_vars = load_env_file(project_root)
+
+    mysql_user = 'root'
+    mysql_password = env_vars.get('MYSQL_ROOT_PASSWORD', 'root')
+    mysql_database = 'ape-management'
     
     cmd = f"docker exec -it symfony-mysql mysql -u{mysql_user} -p{mysql_password} {mysql_database}"
     print_info(f"Connecting to database: {mysql_database}")
