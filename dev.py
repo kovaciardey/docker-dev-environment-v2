@@ -11,6 +11,7 @@ import argparse
 from pathlib import Path
 import shutil
 import yaml
+from datetime import datetime
 
 # Color codes for terminal output
 class Colors:
@@ -207,6 +208,9 @@ Examples:
   %(prog)s logs nginx              # View Nginx logs
   %(prog)s up --build              # Start containers with rebuild
   %(prog)s nuke                    # Complete Docker cleanup
+  %(prog)s mysql                   # Open CLI in the MySQL container
+  %(prog)s db-dump                 # Dump ape-management to backups/
+  %(prog)s db-reset                # Wipe MySQL data volume (asks for confirmation)
         """
     )
     
@@ -241,6 +245,15 @@ Examples:
     
     # mysql command
     subparsers.add_parser('mysql', help='Open MySQL CLI')
+
+    # dump database command
+    db_dump_parser = subparsers.add_parser('db-dump', help='Dump a database to backups/')
+    db_dump_parser.add_argument('database', nargs='?', default='ape-management', help='The name of the database (default: ape-management)')
+
+    # database reset command
+    db_reset_parser = subparsers.add_parser('db-reset', help='Delete the MySQL volume and recreate an empty database server')
+    db_reset_parser.add_argument('--force', action='store_true',
+                            help='Skip confirmation prompt')
     
     # logs command
     logs_parser = subparsers.add_parser('logs', help='View container logs')
@@ -454,7 +467,10 @@ def cmd_shell(compose_cmd, project_root, service='php'):
     return run_command(cmd, check=False)
 
 def cmd_mysql(compose_cmd, project_root):
-    """Open MySQL CLI inside MySQL container"""
+    """
+    Connects as root (password from MYSQL_ROOT_PASSWORD in .env) to the ape-management db
+    TODO: perhaps extend it to be able to specify a different db/user-pw combination
+    """
     print_header("Opening MySQL CLI")
     
     # Check if MySQL container is running
@@ -467,27 +483,125 @@ def cmd_mysql(compose_cmd, project_root):
         return False
     
     # Get MySQL credentials from .env file
-    env_file = project_root / '.env'
-    mysql_user = 'symfony'
-    mysql_password = 'symfony'
-    mysql_database = 'symfony'
-    
-    if env_file.exists():
-        with open(env_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith('MYSQL_USER='):
-                    mysql_user = line.split('=', 1)[1]
-                elif line.startswith('MYSQL_PASSWORD='):
-                    mysql_password = line.split('=', 1)[1]
-                elif line.startswith('MYSQL_DATABASE='):
-                    mysql_database = line.split('=', 1)[1]
+    env_vars = load_env_file(project_root)
+
+    mysql_user = 'root'
+    mysql_password = env_vars.get('MYSQL_ROOT_PASSWORD', 'root')
+    mysql_database = 'ape-management'
     
     cmd = f"docker exec -it symfony-mysql mysql -u{mysql_user} -p{mysql_password} {mysql_database}"
     print_info(f"Connecting to database: {mysql_database}")
     print_info("Type 'exit' to leave MySQL CLI\n")
 
     return run_command(cmd, check=False)
+
+def cmd_db_dump(compose_cmd, project_root, database='ape-management'):
+    """Create a DB dump, for the ape-management db by default"""
+    print_header(f"Dumping the {database} database to a file")
+
+    # Check if MySQL container is running
+    check_cmd = "docker ps --filter name=symfony-mysql --format '{{.Names}}'"
+    result = run_command(check_cmd, capture_output=True)
+    
+    if not result or 'symfony-mysql' not in result:
+        print_error("MySQL container is not running")
+        print_info("Start containers with: dev start")
+        return False
+
+    # Make sure the backups folder exists
+    backup_dir = project_root / 'backups'
+    backup_dir.mkdir(exist_ok=True)
+
+    # Create the filename
+    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+    dump_file = backup_dir / f"{database}-{timestamp}.sql"
+
+    # Get DB credentials
+    env_vars = load_env_file(project_root)
+
+    mysql_user = 'root'
+    mysql_password = env_vars.get('MYSQL_ROOT_PASSWORD', 'root')
+
+    # Build and run the command
+    cmd = f"docker exec symfony-mysql sh -c 'mysqldump -u{mysql_user} -p{mysql_password} --skip-extended-insert --complete-insert --single-transaction --routines --triggers --databases {database}' > {dump_file}"
+
+    if (run_command(cmd, check=False)):
+        print_success(f"Database successfully dumped at {dump_file.relative_to(project_root)}")
+        print_info(f"File size: {dump_file.stat().st_size / 1024:.1f} KB")
+        return True
+    else:
+        dump_file.unlink(missing_ok=True)
+        print_error(f"There was an error dumping {database} to a file")
+        return False
+
+def cmd_db_reset(compose_cmd, project_root, force=False):
+    """Delete the MySQL volume and recreate an empty database server"""
+    print_header("[!] Database Reset [!]")
+    
+    if not force:
+        print_warning("This will completely remove all database data")
+        print_warning("You might want to run 'dev db-dump' first to create a backup of the data")
+        print_warning("This action CANNOT be undone!")
+        
+        confirm = input("\nType 'RESET' in capitals to confirm: ").strip()
+        if confirm != 'RESET':
+            print_info("Reset cancelled")
+            return False
+    
+    print_info("*** Beginning Database Reset...")
+
+    # Find the volume name
+    inspect_cmd = "docker inspect symfony-mysql --format '{{range .Mounts}}{{if eq .Destination \"/var/lib/mysql\"}}{{.Name}}{{end}}{{end}}'"
+    volume_name = run_command(inspect_cmd, capture_output=True)
+
+    if not volume_name:
+        print_error("Could not find the MySQL data volume (is the container created?)")
+        print_info("Create it with: dev up")
+        return False
+
+    # Remove the mysql container
+    remove_container_cmd = f"{compose_cmd} rm -s -f mysql"
+    if not run_command(remove_container_cmd, cwd=project_root):
+        print_error("The MySQL could not be removed")
+        return False
+
+    print_info("\nThe MySQL container has been removed")
+
+    # Remove the volume
+    remove_volume_cmd = f"docker volume rm {volume_name}"
+
+    if not run_command(remove_volume_cmd):
+        print_error(f"\nThere has been an error trying to remove {volume_name}")
+        return False
+
+    # Start MySQL again
+    start_mysql_cmd = f"{compose_cmd} up -d mysql"
+    if not run_command(start_mysql_cmd, cwd=project_root):
+        print_error("The container failed to start")
+        return False
+
+    # Wait for MySQL to be ready
+    import time
+    print_info("Waiting for MySQL container to be ready...")
+    max_retries = 30
+    container_ready = False
+    for i in range(max_retries):
+        check_cmd = "docker exec symfony-mysql mysqladmin ping -h 127.0.0.1 --silent"
+        result = run_command(check_cmd, check=False)
+        if result:
+            print_success("MySQL Container is running")
+            container_ready = True
+            break
+        time.sleep(2)
+
+    if not container_ready:
+        print_error(f"MySQL container failed to start within {max_retries * 2}s")
+        print_info("Run 'dlogs mysql' for more information")
+        return False
+
+    print_success("MySQL Database has been reset successfully")
+    print_info("Next: dev setup-symfony")
+    return True
 
 def cmd_init(compose_cmd, project_root):
     """Initialize the development environment"""
@@ -1121,6 +1235,10 @@ if __name__ == "__main__":
         cmd_shell(COMPOSE_CMD, PROJECT_ROOT, args.service)
     elif args.command == 'mysql':
         cmd_mysql(COMPOSE_CMD, PROJECT_ROOT)
+    elif args.command == 'db-dump':
+        cmd_db_dump(COMPOSE_CMD, PROJECT_ROOT, args.database)
+    elif args.command == 'db-reset':
+        cmd_db_reset(COMPOSE_CMD, PROJECT_ROOT, args.force)
     elif args.command == 'logs':
         cmd_logs(COMPOSE_CMD, PROJECT_ROOT, args.service, args.follow)
     elif args.command == 'status':
