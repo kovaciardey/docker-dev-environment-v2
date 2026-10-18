@@ -210,6 +210,7 @@ Examples:
   %(prog)s nuke                    # Complete Docker cleanup
   %(prog)s mysql                   # Open CLI in the MySQL container
   %(prog)s db-dump                 # Dump ape-management to backups/
+  %(prog)s db-reset                # Wipe MySQL data volume (asks for confirmation)
         """
     )
     
@@ -248,6 +249,11 @@ Examples:
     # dump database command
     db_dump_parser = subparsers.add_parser('db-dump', help='Dump a database to backups/')
     db_dump_parser.add_argument('database', nargs='?', default='ape-management', help='The name of the database (default: ape-management)')
+
+    # database reset command
+    db_reset_parser = subparsers.add_parser('db-reset', help='Delete the MySQL volume and recreate an empty database server')
+    db_reset_parser.add_argument('--force', action='store_true',
+                            help='Skip confirmation prompt')
     
     # logs command
     logs_parser = subparsers.add_parser('logs', help='View container logs')
@@ -527,6 +533,75 @@ def cmd_db_dump(compose_cmd, project_root, database='ape-management'):
         dump_file.unlink(missing_ok=True)
         print_error(f"There was an error dumping {database} to a file")
         return False
+
+def cmd_db_reset(compose_cmd, project_root, force=False):
+    """Delete the MySQL volume and recreate an empty database server"""
+    print_header("[!] Database Reset [!]")
+    
+    if not force:
+        print_warning("This will completely remove all database data")
+        print_warning("You might want to run 'dev db-dump' first to create a backup of the data")
+        print_warning("This action CANNOT be undone!")
+        
+        confirm = input("\nType 'RESET' in capitals to confirm: ").strip()
+        if confirm != 'RESET':
+            print_info("Reset cancelled")
+            return False
+    
+    print_info("*** Beginning Database Reset...")
+
+    # Find the volume name
+    inspect_cmd = "docker inspect symfony-mysql --format '{{range .Mounts}}{{if eq .Destination \"/var/lib/mysql\"}}{{.Name}}{{end}}{{end}}'"
+    volume_name = run_command(inspect_cmd, capture_output=True)
+
+    if not volume_name:
+        print_error("Could not find the MySQL data volume (is the container created?)")
+        print_info("Create it with: dev up")
+        return False
+
+    # Remove the mysql container
+    remove_container_cmd = f"{compose_cmd} rm -s -f mysql"
+    if not run_command(remove_container_cmd, cwd=project_root):
+        print_error("The MySQL could not be removed")
+        return False
+
+    print_info("\nThe MySQL container has been removed")
+
+    # Remove the volume
+    remove_volume_cmd = f"docker volume rm {volume_name}"
+
+    if not run_command(remove_volume_cmd):
+        print_error(f"\nThere has been an error trying to remove {volume_name}")
+        return False
+
+    # Start MySQL again
+    start_mysql_cmd = f"{compose_cmd} up -d mysql"
+    if not run_command(start_mysql_cmd, cwd=project_root):
+        print_error("The container failed to start")
+        return False
+
+    # Wait for MySQL to be ready
+    import time
+    print_info("Waiting for MySQL container to be ready...")
+    max_retries = 30
+    container_ready = False
+    for i in range(max_retries):
+        check_cmd = "docker exec symfony-mysql mysqladmin ping -h 127.0.0.1 --silent"
+        result = run_command(check_cmd, check=False)
+        if result:
+            print_success("MySQL Container is running")
+            container_ready = True
+            break
+        time.sleep(2)
+
+    if not container_ready:
+        print_error(f"MySQL container failed to start within {max_retries * 2}s")
+        print_info("Run 'dlogs mysql' for more information")
+        return False
+
+    print_success("MySQL Database has been reset successfully")
+    print_info("Next: dev setup-symfony")
+    return True
 
 def cmd_init(compose_cmd, project_root):
     """Initialize the development environment"""
@@ -1162,6 +1237,8 @@ if __name__ == "__main__":
         cmd_mysql(COMPOSE_CMD, PROJECT_ROOT)
     elif args.command == 'db-dump':
         cmd_db_dump(COMPOSE_CMD, PROJECT_ROOT, args.database)
+    elif args.command == 'db-reset':
+        cmd_db_reset(COMPOSE_CMD, PROJECT_ROOT, args.force)
     elif args.command == 'logs':
         cmd_logs(COMPOSE_CMD, PROJECT_ROOT, args.service, args.follow)
     elif args.command == 'status':
