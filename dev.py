@@ -11,6 +11,7 @@ import argparse
 from pathlib import Path
 import shutil
 import yaml
+from datetime import datetime
 
 # Color codes for terminal output
 class Colors:
@@ -207,6 +208,8 @@ Examples:
   %(prog)s logs nginx              # View Nginx logs
   %(prog)s up --build              # Start containers with rebuild
   %(prog)s nuke                    # Complete Docker cleanup
+  %(prog)s mysql                   # Open CLI in the MySQL container
+  %(prog)s db-dump                 # Dump ape-management to backups/
         """
     )
     
@@ -241,6 +244,10 @@ Examples:
     
     # mysql command
     subparsers.add_parser('mysql', help='Open MySQL CLI')
+
+    # dump database command
+    db_dump_parser = subparsers.add_parser('db-dump', help='Dump a database to backups/')
+    db_dump_parser.add_argument('database', nargs='?', default='ape-management', help='The name of the database (default: ape-management)')
     
     # logs command
     logs_parser = subparsers.add_parser('logs', help='View container logs')
@@ -481,6 +488,45 @@ def cmd_mysql(compose_cmd, project_root):
     print_info("Type 'exit' to leave MySQL CLI\n")
 
     return run_command(cmd, check=False)
+
+def cmd_db_dump(compose_cmd, project_root, database='ape-management'):
+    """Create a DB dump, for the ape-management db by default"""
+    print_header(f"Dumping the {database} database to a file")
+
+    # Check if MySQL container is running
+    check_cmd = "docker ps --filter name=symfony-mysql --format '{{.Names}}'"
+    result = run_command(check_cmd, capture_output=True)
+    
+    if not result or 'symfony-mysql' not in result:
+        print_error("MySQL container is not running")
+        print_info("Start containers with: dev start")
+        return False
+
+    # Make sure the backups folder exists
+    backup_dir = project_root / 'backups'
+    backup_dir.mkdir(exist_ok=True)
+
+    # Create the filename
+    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+    dump_file = backup_dir / f"{database}-{timestamp}.sql"
+
+    # Get DB credentials
+    env_vars = load_env_file(project_root)
+
+    mysql_user = 'root'
+    mysql_password = env_vars.get('MYSQL_ROOT_PASSWORD', 'root')
+
+    # Build and run the command
+    cmd = f"docker exec symfony-mysql sh -c 'mysqldump -u{mysql_user} -p{mysql_password} --skip-extended-insert --complete-insert --single-transaction --routines --triggers --databases {database}' > {dump_file}"
+
+    if (run_command(cmd, check=False)):
+        print_success(f"Database successfully dumped at {dump_file.relative_to(project_root)}")
+        print_info(f"File size: {dump_file.stat().st_size / 1024:.1f} KB")
+        return True
+    else:
+        dump_file.unlink(missing_ok=True)
+        print_error(f"There was an error dumping {database} to a file")
+        return False
 
 def cmd_init(compose_cmd, project_root):
     """Initialize the development environment"""
@@ -1114,6 +1160,8 @@ if __name__ == "__main__":
         cmd_shell(COMPOSE_CMD, PROJECT_ROOT, args.service)
     elif args.command == 'mysql':
         cmd_mysql(COMPOSE_CMD, PROJECT_ROOT)
+    elif args.command == 'db-dump':
+        cmd_db_dump(COMPOSE_CMD, PROJECT_ROOT, args.database)
     elif args.command == 'logs':
         cmd_logs(COMPOSE_CMD, PROJECT_ROOT, args.service, args.follow)
     elif args.command == 'status':
