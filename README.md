@@ -24,7 +24,7 @@ A Docker-based development environment for Symfony 6.4 API projects with Nginx, 
 - **Traefik Reverse Proxy** - Domain-based routing with automatic service discovery
 - **Nginx + PHP-FPM** - Professional web server architecture for Symfony backend
 - **Vue3 + Vue CLI** - Modern frontend development with hot module replacement
-- **MySQL 8.0** - Persistent database with custom configuration
+- **MySQL 8.4 (LTS)** - Persistent database with custom configuration
 - **phpMyAdmin** - Web-based database management
 - **Dozzle** - Real-time Docker log viewer with web UI
 - **User ID Mapping** - Automatic permission handling (no root-owned files)
@@ -153,7 +153,7 @@ Now you can use short aliases like `dev`, `dcomposer`, `dsymfony`, `dsetup`, etc
          ▼
 ┌──────────────────┐
 │ MySQL Container  │  Persistent database
-│   (MySQL 8.0)    │
+│   (MySQL 8.4)    │
 └──────────────────┘
          ▲
          │ :8081
@@ -201,9 +201,16 @@ dev symfony [cmd]     # Run Symfony console commands
 dev npm [cmd]         # Run NPM commands
 dev setup-symfony     # Run Symfony database setup (create DB, migrations, fixtures)
 dev shell [service]   # Open interactive shell (default: php)
-dev mysql             # Open MySQL CLI
+dev mysql             # Open MySQL CLI (as root, on the ape-management database)
 dev logs [service]    # View logs (use -f to follow)
 ```
+
+### Database Commands
+```bash
+dev db-dump [db]      # Dump a database to backups/ (default: ape-management)
+dev db-reset          # Delete the MySQL data volume and start an empty server (use --force to skip prompt)
+```
+These have no short aliases on purpose: `db-reset` is destructive and both are used occasionally.
 
 ### Utility Commands
 ```bash
@@ -330,9 +337,9 @@ Note: Place your Vue3 project in `projects/ape-management-frontend/` directory.
 ```
 Host: localhost
 Port: 3306
-Database: symfony
-Username: symfony
-Password: symfony
+Database: ape-management
+Username: root
+Password: root
 ```
 
 ### Containers (Shell Access)
@@ -340,6 +347,7 @@ Password: symfony
 dev shell php         # PHP-FPM container (default)
 dev shell nginx       # Nginx container
 dev shell mysql       # MySQL container
+dev shell vue         # Vue container
 ```
 
 ---
@@ -461,8 +469,6 @@ dev logs -f php
 
 ### Running Tests
 ```bash
-dev composer test
-# or
 dev shell
 php bin/phpunit
 ```
@@ -477,21 +483,35 @@ php bin/console cache:clear
 
 ### Importing Database Dump
 ```bash
-# Via MySQL CLI
-dev mysql < /path/to/dump.sql
+# Via MySQL CLI (raw docker: `dev mysql` allocates a TTY, so it can't read from a redirect)
+docker exec -i symfony-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD"' < backups/<file>.sql
 
 # Via phpMyAdmin
-# Go to http://localhost:8081 and use Import tab
+# Go to http://phpmyadmin.andrei.dev.uk and use the Import tab
 ```
+
+Dumps made with `dev db-dump` include `CREATE DATABASE` and `USE`, so no database name is needed on import.
 
 ### Exporting Database
 ```bash
-dev shell mysql
-mysqldump -usymfony -psymfony symfony > /var/www/html/backup.sql
-exit
+dev db-dump                  # Dumps ape-management
+dev db-dump <database>       # Dumps another database
 
-# File will be in: ./projects/symfony-api/backup.sql
+# File will be in: ./backups/<database>-YYYYmmdd-HHMMSS.sql
 ```
+
+Dev dumps write one `INSERT` per row with column names (`--skip-extended-insert --complete-insert`) so they are easy to read and diff.
+
+### Resetting the Database
+
+Wipes all MySQL data and starts an empty server, then rebuilds the schema and fixtures:
+```bash
+dev db-dump        # Optional: back up first
+dev db-reset       # Type RESET to confirm
+dev setup-symfony  # Create DB, run migrations, load fixtures
+```
+
+This is also how to move to a new MySQL major/minor version: change the image tag in `docker-compose.yml`, then run the steps above.
 
 ---
 
@@ -578,13 +598,13 @@ composer install -vvv
 **Solution:**
 ```bash
 dev status  # Check if php container is running
-dev restart php
+dev restart
 dev logs php  # Check for errors
 ```
 
 ### Code Changes Not Reflecting
 
-**For PHP code:** Changes should appear immediately (OPcache is disabled in dev)
+**For PHP code:** Changes should appear immediately (OPcache is enabled but re-checks file timestamps on every request: `validate_timestamps=1`, `revalidate_freq=0`)
 
 **For Symfony config/routes:**
 ```bash
@@ -622,10 +642,16 @@ Note: Your Symfony code will NOT be deleted, but you will lose all database data
 
 ### Can't Connect to Database from Symfony
 
-**Check DATABASE_URL in .env:**
+**Check the `DB_*` variables in the API's `.env.dev`** (`projects/symfony-api/app/.env.dev`):
 ```env
-DATABASE_URL=mysql://symfony:symfony@mysql:3306/symfony?serverVersion=8.0
+DB_NAME="ape-management"
+DB_HOST="mysql"
+DB_PORT="3306"
+DB_USERNAME="root"
+DB_PASSWORD="root"
 ```
+
+The MySQL version is set in `config/packages/doctrine.yaml` (`server_version: '8.4'`), not in an env var.
 
 **Test connection:**
 ```bash
@@ -650,6 +676,7 @@ dev-environment/
 ├── projects/
 │   ├── symfony-api/             # Your Symfony project (cloned via setup)
 │   └── ape-management-frontend/ # Your Vue3 project (cloned via setup)
+├── backups/                     # Database dumps from dev db-dump (gitignored)
 ├── logs/
 │   └── nginx/                   # Nginx access/error logs
 ├── docker-compose.yml           # Orchestrates all services
@@ -681,10 +708,11 @@ dev composer update
 
 ### Update Docker Images
 ```bash
-dev down
-docker compose pull
-dev start
+docker compose pull   # No wrapper; downloads newer images for the current tags
+dev up                # Recreates only the containers whose image changed
 ```
+
+Compose only pulls an image when it is missing locally, so floating tags like `mysql:8.4` stay on the cached patch release until you pull. Patch releases within the same tag keep the existing data volume; a major/minor change (e.g. 8.4 → 9.x) should go through [Resetting the Database](#resetting-the-database).
 
 ---
 
