@@ -147,7 +147,7 @@ Now you can use short aliases like `dev`, `dcomposer`, `dsymfony`, `dsetup`, etc
          ▼
 ┌──────────────────┐
 │ PHP-FPM Container│  Executes PHP code
-│   (PHP 8.2)      │  Symfony 6.4
+│   (PHP 8.4)      │  Symfony 6.4
 └────────┬─────────┘
          │ :3306
          ▼
