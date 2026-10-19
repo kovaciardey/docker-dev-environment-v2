@@ -1,5 +1,5 @@
-# Use official PHP 8.2 FPM base image
-FROM php:8.2-fpm
+# Use official PHP 8.4 FPM base image
+FROM php:8.4-fpm
 
 # Arguments for user ID mapping (prevents permission issues)
 ARG USER_ID=1000
