@@ -13,8 +13,6 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     libpng-dev \
-    libonig-dev \
-    libxml2-dev \
     libzip-dev \
     zip \
     unzip \
@@ -22,22 +20,16 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install PHP extensions required by Symfony 6.4
+# (mbstring, xml, dom, simplexml, xmlwriter and tokenizer are already compiled into the base image)
 RUN docker-php-ext-install \
     pdo_mysql \
-    mbstring \
     exif \
     pcntl \
     bcmath \
     gd \
     intl \
     opcache \
-    zip \
-    xml \
-    dom \
-    simplexml \
-    xmlwriter
-    # xmlwriter \
-    # tokenizer
+    zip
 
 # Install APCu (recommended for Symfony caching and proxy-manager-bridge)
 RUN pecl install apcu \
