@@ -119,6 +119,24 @@ def split_passthrough_args(argv):
             break
     return env_vars, argv[i:]
 
+# Passthrough commands: 'dev <name> <args>' runs '<command> <args>' in the container.
+# 'example' is shown when no arguments are given; None means no arguments is fine
+# (dev phpunit runs all tests).
+PASSTHROUGH_COMMANDS = {
+    'composer': {'container': 'symfony-php', 'command': ['composer'],
+                 'title': 'Running Composer', 'help': 'Run Composer commands', 'example': 'install'},
+    'symfony':  {'container': 'symfony-php', 'command': ['php', 'bin/console'],
+                 'title': 'Running Symfony Console', 'help': 'Run Symfony console commands', 'example': 'cache:clear'},
+    'npm':      {'container': 'symfony-vue', 'command': ['npm'],
+                 'title': 'Running NPM', 'help': 'Run NPM commands', 'example': 'install'},
+    'php':      {'container': 'symfony-php', 'command': ['php'],
+                 'title': 'Running PHP', 'help': 'Run php in the PHP container', 'example': '-v'},
+    'phpunit':  {'container': 'symfony-php', 'command': ['vendor/bin/phpunit'],
+                 'title': 'Running PHPUnit', 'help': 'Run PHPUnit (no arguments: all tests)', 'example': None},
+    'phpstan':  {'container': 'symfony-php', 'command': ['vendor/bin/phpstan'],
+                 'title': 'Running PHPStan', 'help': 'Run PHPStan', 'example': 'analyse'},
+}
+
 def get_project_root():
     """Get the project root directory (where dev.py is located)"""
     return Path(__file__).parent.absolute()
@@ -252,6 +270,12 @@ Examples:
   %(prog)s setup vue               # Clone/reset Vue project and run setup
   %(prog)s setup symfony --force   # Reset without confirmation prompts
   %(prog)s composer install        # Run composer install
+  %(prog)s composer update --lock  # Arguments (dashes included) go to the tool untouched
+  %(prog)s symfony -e TRUSTED_PROXIES=127.0.0.1 lint:container --env=prod
+                                   # -e NAME=value before the arguments sets an env var
+  %(prog)s php -v                  # Run php in the PHP container
+  %(prog)s phpunit --filter Bill   # Run PHPUnit (no arguments: all tests)
+  %(prog)s phpstan analyse         # Run PHPStan
   %(prog)s npm install             # Run npm install in Vue container
   %(prog)s setup-symfony           # Setup Symfony database
   %(prog)s symfony cache:clear     # Clear Symfony cache
@@ -280,9 +304,8 @@ Examples:
     
     # Passthrough commands: listed here for 'dev --help' only. Their arguments never reach
     # argparse (see the routing in __main__), so they declare none.
-    subparsers.add_parser('composer', help='Run Composer commands')
-    subparsers.add_parser('symfony', help='Run Symfony console commands')
-    subparsers.add_parser('npm', help='Run NPM commands')
+    for name, config in PASSTHROUGH_COMMANDS.items():
+        subparsers.add_parser(name, help=config['help'])
     
     # shell command
     shell_parser = subparsers.add_parser('shell', help='Open shell in container')
@@ -436,45 +459,18 @@ def cmd_logs(compose_cmd, project_root, service='', follow=False):
     
     return True
 
-def cmd_composer(compose_cmd, project_root, composer_args, env_vars=()):
-    """Run Composer commands inside PHP container"""
-    # Messages go to stderr so that only Composer's output goes through a pipe
-    print_header("Running Composer", file=sys.stderr)
+def cmd_passthrough(name, tool_args, env_vars=()):
+    """Run a passthrough command (see PASSTHROUGH_COMMANDS) inside its container"""
+    config = PASSTHROUGH_COMMANDS[name]
+    # Messages go to stderr so that only the tool's output goes through a pipe
+    print_header(config['title'], file=sys.stderr)
 
-    if not composer_args:
-        print_error("No composer command specified")
-        print_info("Example: dev composer install", file=sys.stderr)
+    if not tool_args and config['example']:
+        print_error(f"No {name} command specified")
+        print_info(f"Example: dev {name} {config['example']}", file=sys.stderr)
         return False
 
-    cmd = docker_exec_cmd('symfony-php', ['composer'] + composer_args, env_vars)
-    print_info(f"Running: {shlex.join(cmd)}\n", file=sys.stderr)
-
-    return run_exec(cmd)
-
-def cmd_symfony(compose_cmd, project_root, symfony_args, env_vars=()):
-    """Run Symfony console commands inside PHP container"""
-    print_header("Running Symfony Console", file=sys.stderr)
-
-    if not symfony_args:
-        print_error("No Symfony command specified")
-        print_info("Example: dev symfony cache:clear", file=sys.stderr)
-        return False
-
-    cmd = docker_exec_cmd('symfony-php', ['php', 'bin/console'] + symfony_args, env_vars)
-    print_info(f"Running: {shlex.join(cmd)}\n", file=sys.stderr)
-
-    return run_exec(cmd)
-
-def cmd_npm(compose_cmd, project_root, npm_args, env_vars=()):
-    """Run NPM commands inside Vue container"""
-    print_header("Running NPM", file=sys.stderr)
-
-    if not npm_args:
-        print_error("No NPM command specified")
-        print_info("Example: dev npm install", file=sys.stderr)
-        return False
-
-    cmd = docker_exec_cmd('symfony-vue', ['npm'] + npm_args, env_vars)
+    cmd = docker_exec_cmd(config['container'], config['command'] + tool_args, env_vars)
     print_info(f"Running: {shlex.join(cmd)}\n", file=sys.stderr)
 
     return run_exec(cmd)
@@ -809,6 +805,9 @@ def cmd_init(compose_cmd, project_root):
     print("  * dev composer [cmd]  - Run Composer commands")
     print("  * dev symfony [cmd]   - Run Symfony console")
     print("  * dev npm [cmd]       - Run NPM commands")
+    print("  * dev php [args]      - Run php in the PHP container")
+    print("  * dev phpunit [args]  - Run PHPUnit")
+    print("  * dev phpstan [args]  - Run PHPStan")
     print("  * dev shell [service] - Open shell in container (php, vue, nginx, mysql)")
     print("  * dev mysql           - Open MySQL CLI")
     print_info("\nReload your shell or run: source ~/.bashrc")
@@ -902,6 +901,9 @@ fi
     print("  * dcomposer        - Shortcut for 'dev composer'")
     print("  * dsymfony         - Shortcut for 'dev symfony'")
     print("  * dnpm             - Shortcut for 'dev npm'")
+    print("  * dphp             - Shortcut for 'dev php'")
+    print("  * dphpunit         - Shortcut for 'dev phpunit'")
+    print("  * dphpstan         - Shortcut for 'dev phpstan'")
     print("  * dshell           - Shortcut for 'dev shell'")
     print("  * dmysql           - Shortcut for 'dev mysql'")
     print("  * dlogs            - Shortcut for 'dev logs'")
@@ -1232,13 +1234,11 @@ if __name__ == "__main__":
     # Passthrough commands skip argparse: it would treat any '-x' argument (and -h/--help)
     # as one of dev.py's own options. Everything after the command name goes to the tool,
     # apart from dev.py's own leading '-e NAME=value' / '--' (see split_passthrough_args).
-    passthrough_commands = {'composer': cmd_composer, 'symfony': cmd_symfony, 'npm': cmd_npm}
-    if len(sys.argv) > 1 and sys.argv[1] in passthrough_commands:
+    if len(sys.argv) > 1 and sys.argv[1] in PASSTHROUGH_COMMANDS:
         env_vars, tool_args = split_passthrough_args(sys.argv[2:])
         if not check_docker():
             sys.exit(1)
-        # compose_cmd is not used by these commands, they call 'docker exec' directly
-        ok = passthrough_commands[sys.argv[1]](None, get_project_root(), tool_args, env_vars)
+        ok = cmd_passthrough(sys.argv[1], tool_args, env_vars)
         sys.exit(0 if ok else 1)
 
     parser = create_parser()
