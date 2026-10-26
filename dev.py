@@ -5,6 +5,7 @@ Wrapper for Docker Compose operations for Symfony development
 """
 
 import os
+import re
 import sys
 import shlex
 import subprocess
@@ -86,6 +87,37 @@ def docker_exec_flags():
     when stdin is a pipe/file, and with stdout piped (| head) it would leave the terminal in raw mode.
     """
     return '-it' if sys.stdin.isatty() and sys.stdout.isatty() else '-i'
+
+def docker_exec_cmd(container, command, env_vars=()):
+    """Build a 'docker exec' command as a list; env_vars are 'NAME=value' strings"""
+    cmd = ['docker', 'exec', docker_exec_flags()]
+    for env_var in env_vars:
+        cmd += ['-e', env_var]
+    return cmd + [container] + command
+
+# dev.py's own '-e' only takes NAME=value, so Symfony's '-e prod' (its --env shortcut) passes through
+ENV_ASSIGNMENT = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
+
+def split_passthrough_args(argv):
+    """
+    Split a passthrough command's arguments into dev.py's own options and the tool's arguments.
+    dev.py only reads options at the front: '-e NAME=value' (repeatable) and an optional '--'.
+    It stops at the first argument that is neither; that argument and everything after it
+    go to the tool untouched. Returns (env_vars, tool_args).
+    """
+    env_vars = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == '-e' and i + 1 < len(argv) and ENV_ASSIGNMENT.match(argv[i + 1]):
+            env_vars.append(argv[i + 1])
+            i += 2
+        elif argv[i] == '--':
+            # Backward compatibility: 'dev composer -- update --lock' was the old workaround
+            i += 1
+            break
+        else:
+            break
+    return env_vars, argv[i:]
 
 def get_project_root():
     """Get the project root directory (where dev.py is located)"""
@@ -404,7 +436,7 @@ def cmd_logs(compose_cmd, project_root, service='', follow=False):
     
     return True
 
-def cmd_composer(compose_cmd, project_root, composer_args):
+def cmd_composer(compose_cmd, project_root, composer_args, env_vars=()):
     """Run Composer commands inside PHP container"""
     # Messages go to stderr so that only Composer's output goes through a pipe
     print_header("Running Composer", file=sys.stderr)
@@ -414,12 +446,12 @@ def cmd_composer(compose_cmd, project_root, composer_args):
         print_info("Example: dev composer install", file=sys.stderr)
         return False
 
-    cmd = ['docker', 'exec', docker_exec_flags(), 'symfony-php', 'composer'] + composer_args
+    cmd = docker_exec_cmd('symfony-php', ['composer'] + composer_args, env_vars)
     print_info(f"Running: {shlex.join(cmd)}\n", file=sys.stderr)
 
     return run_exec(cmd)
 
-def cmd_symfony(compose_cmd, project_root, symfony_args):
+def cmd_symfony(compose_cmd, project_root, symfony_args, env_vars=()):
     """Run Symfony console commands inside PHP container"""
     print_header("Running Symfony Console", file=sys.stderr)
 
@@ -428,12 +460,12 @@ def cmd_symfony(compose_cmd, project_root, symfony_args):
         print_info("Example: dev symfony cache:clear", file=sys.stderr)
         return False
 
-    cmd = ['docker', 'exec', docker_exec_flags(), 'symfony-php', 'php', 'bin/console'] + symfony_args
+    cmd = docker_exec_cmd('symfony-php', ['php', 'bin/console'] + symfony_args, env_vars)
     print_info(f"Running: {shlex.join(cmd)}\n", file=sys.stderr)
 
     return run_exec(cmd)
 
-def cmd_npm(compose_cmd, project_root, npm_args):
+def cmd_npm(compose_cmd, project_root, npm_args, env_vars=()):
     """Run NPM commands inside Vue container"""
     print_header("Running NPM", file=sys.stderr)
 
@@ -442,7 +474,7 @@ def cmd_npm(compose_cmd, project_root, npm_args):
         print_info("Example: dev npm install", file=sys.stderr)
         return False
 
-    cmd = ['docker', 'exec', docker_exec_flags(), 'symfony-vue', 'npm'] + npm_args
+    cmd = docker_exec_cmd('symfony-vue', ['npm'] + npm_args, env_vars)
     print_info(f"Running: {shlex.join(cmd)}\n", file=sys.stderr)
 
     return run_exec(cmd)
@@ -1198,17 +1230,15 @@ def cmd_up(compose_cmd, project_root, build=False):
 # Main entry point will go here
 if __name__ == "__main__":
     # Passthrough commands skip argparse: it would treat any '-x' argument (and -h/--help)
-    # as one of dev.py's own options. Everything after the command name goes to the tool.
+    # as one of dev.py's own options. Everything after the command name goes to the tool,
+    # apart from dev.py's own leading '-e NAME=value' / '--' (see split_passthrough_args).
     passthrough_commands = {'composer': cmd_composer, 'symfony': cmd_symfony, 'npm': cmd_npm}
     if len(sys.argv) > 1 and sys.argv[1] in passthrough_commands:
-        tool_args = sys.argv[2:]
-        # Backward compatibility: 'dev composer -- update --lock' was the old workaround
-        if tool_args[:1] == ['--']:
-            tool_args = tool_args[1:]
+        env_vars, tool_args = split_passthrough_args(sys.argv[2:])
         if not check_docker():
             sys.exit(1)
         # compose_cmd is not used by these commands, they call 'docker exec' directly
-        ok = passthrough_commands[sys.argv[1]](None, get_project_root(), tool_args)
+        ok = passthrough_commands[sys.argv[1]](None, get_project_root(), tool_args, env_vars)
         sys.exit(0 if ok else 1)
 
     parser = create_parser()
