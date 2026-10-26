@@ -293,6 +293,7 @@ Examples:
   %(prog)s shell vue               # Open shell in Vue container
   %(prog)s logs nginx              # View Nginx logs
   %(prog)s up --build              # Start containers with rebuild
+  %(prog)s up --pull               # Rebuild with newer base images (new PHP patch release)
   %(prog)s nuke                    # Complete Docker cleanup
   %(prog)s mysql                   # Open CLI in the MySQL container
   %(prog)s db-dump                 # Dump ape-management to backups/
@@ -367,6 +368,8 @@ Examples:
     up_parser = subparsers.add_parser('up', help='Start containers with optional rebuild')
     up_parser.add_argument('--build', action='store_true',
                       help='Rebuild containers before starting')
+    up_parser.add_argument('--pull', action='store_true',
+                      help='Rebuild with newer base images (e.g. a new PHP patch release); implies --build')
     
     return parser
 
@@ -436,7 +439,8 @@ def cmd_rebuild(compose_cmd, project_root):
     run_command(f"{compose_cmd} down", cwd=project_root)
     
     print_info("Building containers (this may take a while)...")
-    if not run_command(f"{compose_cmd} build --no-cache", cwd=project_root):
+    # --pull as well: --no-cache alone would still reuse the cached base images
+    if not run_command(f"{compose_cmd} build --no-cache --pull", cwd=project_root):
         print_error("Failed to build containers")
         return False
     
@@ -1215,9 +1219,13 @@ def cmd_nuke(compose_cmd, project_root, force=False):
     
     return True
 
-def cmd_up(compose_cmd, project_root, build=False):
-    """Start containers with optional rebuild"""
-    if build:
+def cmd_up(compose_cmd, project_root, build=False, pull=False):
+    """
+    Start containers with optional rebuild.
+    pull=True rebuilds with 'build --pull': newer base images (FROM / COPY --from) are
+    downloaded instead of reusing the cached ones, e.g. to get a new PHP patch release.
+    """
+    if build or pull:
         print_header("Starting Containers with Rebuild")
     else:
         print_header("Starting Containers")
@@ -1230,7 +1238,14 @@ def cmd_up(compose_cmd, project_root, build=False):
         return False
     
     # Build the command
-    if build:
+    if pull:
+        # 'up' has no option to pull base images for built services, so build first
+        print_info("Pulling newer base images and building (this may take a few minutes)...")
+        if not run_command(f"{compose_cmd} build --pull", cwd=project_root):
+            print_error("Failed to build containers")
+            return False
+        cmd = f"{compose_cmd} up -d"
+    elif build:
         cmd = f"{compose_cmd} up -d --build"
         print_info("Building and starting containers (this may take a few minutes)...")
     else:
@@ -1324,7 +1339,7 @@ if __name__ == "__main__":
     elif args.command == 'nuke':
         cmd_nuke(COMPOSE_CMD, PROJECT_ROOT, args.force)
     elif args.command == 'up':
-        cmd_up(COMPOSE_CMD, PROJECT_ROOT, args.build)
+        cmd_up(COMPOSE_CMD, PROJECT_ROOT, args.build, args.pull)
     else:
         parser.print_help()
         sys.exit(1)
