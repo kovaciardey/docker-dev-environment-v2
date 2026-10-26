@@ -5,7 +5,9 @@ Wrapper for Docker Compose operations for Symfony development
 """
 
 import os
+import re
 import sys
+import shlex
 import subprocess
 import argparse
 from pathlib import Path
@@ -32,19 +34,19 @@ def print_error(msg):
     """Print error message in red"""
     print(f"{Colors.FAIL}x {msg}{Colors.ENDC}", file=sys.stderr)
 
-def print_info(msg):
+def print_info(msg, file=sys.stdout):
     """Print info message in cyan"""
-    print(f"{Colors.OKCYAN}* {msg}{Colors.ENDC}")
+    print(f"{Colors.OKCYAN}* {msg}{Colors.ENDC}", file=file)
 
 def print_warning(msg):
     """Print warning message in yellow"""
     print(f"{Colors.WARNING}! {msg}{Colors.ENDC}")
 
-def print_header(msg):
+def print_header(msg, file=sys.stdout):
     """Print section header"""
-    print(f"\n{Colors.HEADER}{Colors.BOLD}{'='*60}{Colors.ENDC}")
-    print(f"{Colors.HEADER}{Colors.BOLD}{msg:^60}{Colors.ENDC}")
-    print(f"{Colors.HEADER}{Colors.BOLD}{'='*60}{Colors.ENDC}\n")
+    print(f"\n{Colors.HEADER}{Colors.BOLD}{'='*60}{Colors.ENDC}", file=file)
+    print(f"{Colors.HEADER}{Colors.BOLD}{msg:^60}{Colors.ENDC}", file=file)
+    print(f"{Colors.HEADER}{Colors.BOLD}{'='*60}{Colors.ENDC}\n", file=file)
 
 def run_command(cmd, check=True, capture_output=False, cwd=None):
     """Run a shell command and return result"""
@@ -66,6 +68,84 @@ def run_command(cmd, check=True, capture_output=False, cwd=None):
         if capture_output and e.stderr:
             print_error(e.stderr)
         return False if capture_output else False
+
+def run_exec(cmd):
+    """
+    Run a command given as a list, without a shell, and return True on success.
+    Each list item reaches the program as exactly one argument (no re-splitting on spaces).
+    """
+    try:
+        return subprocess.run(cmd).returncode == 0
+    except KeyboardInterrupt:
+        return False
+
+def docker_exec_flags():
+    """
+    Flags for 'docker exec' commands that may be interactive or piped.
+    -i keeps stdin open, so piped input reaches the container (dev mysql < dump.sql).
+    -t (a terminal) only when stdin and stdout are both a real terminal: docker refuses -t
+    when stdin is a pipe/file, and with stdout piped (| head) it would leave the terminal in raw mode.
+    """
+    return '-it' if sys.stdin.isatty() and sys.stdout.isatty() else '-i'
+
+def docker_exec_cmd(container, command, env_vars=(), user=None):
+    """
+    Build a 'docker exec' command as a list; env_vars are 'NAME=value' strings.
+    user=None runs as the image's default user (root in symfony-php, see PHP_USER).
+    """
+    cmd = ['docker', 'exec', docker_exec_flags()]
+    if user:
+        cmd += ['-u', user]
+    for env_var in env_vars:
+        cmd += ['-e', env_var]
+    return cmd + [container] + command
+
+# dev.py's own '-e' only takes NAME=value, so Symfony's '-e prod' (its --env shortcut) passes through
+ENV_ASSIGNMENT = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
+
+def split_passthrough_args(argv):
+    """
+    Split a passthrough command's arguments into dev.py's own options and the tool's arguments.
+    dev.py only reads options at the front: '-e NAME=value' (repeatable) and an optional '--'.
+    It stops at the first argument that is neither; that argument and everything after it
+    go to the tool untouched. Returns (env_vars, tool_args).
+    """
+    env_vars = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == '-e' and i + 1 < len(argv) and ENV_ASSIGNMENT.match(argv[i + 1]):
+            env_vars.append(argv[i + 1])
+            i += 2
+        elif argv[i] == '--':
+            # Backward compatibility: 'dev composer -- update --lock' was the old workaround
+            i += 1
+            break
+        else:
+            break
+    return env_vars, argv[i:]
+
+# The symfony-php image ends as root (php-fpm's master process needs it), so 'docker exec'
+# defaults to root. Commands that write into the bind-mounted app run as this user instead:
+# it has the host's UID/GID, so new files stay owned by the host user.
+PHP_USER = 'symfony'
+
+# Passthrough commands: 'dev <name> <args>' runs '<command> <args>' in the container.
+# 'example' is shown when no arguments are given; None means no arguments is fine
+# (dev phpunit runs all tests). 'user' None: symfony-vue already runs as the host user.
+PASSTHROUGH_COMMANDS = {
+    'composer': {'container': 'symfony-php', 'user': PHP_USER, 'command': ['composer'],
+                 'title': 'Running Composer', 'help': 'Run Composer commands', 'example': 'install'},
+    'symfony':  {'container': 'symfony-php', 'user': PHP_USER, 'command': ['php', 'bin/console'],
+                 'title': 'Running Symfony Console', 'help': 'Run Symfony console commands', 'example': 'cache:clear'},
+    'npm':      {'container': 'symfony-vue', 'user': None, 'command': ['npm'],
+                 'title': 'Running NPM', 'help': 'Run NPM commands', 'example': 'install'},
+    'php':      {'container': 'symfony-php', 'user': PHP_USER, 'command': ['php'],
+                 'title': 'Running PHP', 'help': 'Run php in the PHP container', 'example': '-v'},
+    'phpunit':  {'container': 'symfony-php', 'user': PHP_USER, 'command': ['vendor/bin/phpunit'],
+                 'title': 'Running PHPUnit', 'help': 'Run PHPUnit (no arguments: all tests)', 'example': None},
+    'phpstan':  {'container': 'symfony-php', 'user': PHP_USER, 'command': ['vendor/bin/phpstan'],
+                 'title': 'Running PHPStan', 'help': 'Run PHPStan', 'example': 'analyse'},
+}
 
 def get_project_root():
     """Get the project root directory (where dev.py is located)"""
@@ -200,6 +280,12 @@ Examples:
   %(prog)s setup vue               # Clone/reset Vue project and run setup
   %(prog)s setup symfony --force   # Reset without confirmation prompts
   %(prog)s composer install        # Run composer install
+  %(prog)s composer update --lock  # Arguments (dashes included) go to the tool untouched
+  %(prog)s symfony -e TRUSTED_PROXIES=127.0.0.1 lint:container --env=prod
+                                   # -e NAME=value before the arguments sets an env var
+  %(prog)s php -v                  # Run php in the PHP container
+  %(prog)s phpunit --filter Bill   # Run PHPUnit (no arguments: all tests)
+  %(prog)s phpstan analyse         # Run PHPStan
   %(prog)s npm install             # Run npm install in Vue container
   %(prog)s setup-symfony           # Setup Symfony database
   %(prog)s symfony cache:clear     # Clear Symfony cache
@@ -207,6 +293,7 @@ Examples:
   %(prog)s shell vue               # Open shell in Vue container
   %(prog)s logs nginx              # View Nginx logs
   %(prog)s up --build              # Start containers with rebuild
+  %(prog)s up --pull               # Rebuild with newer base images (new PHP patch release)
   %(prog)s nuke                    # Complete Docker cleanup
   %(prog)s mysql                   # Open CLI in the MySQL container
   %(prog)s db-dump                 # Dump ape-management to backups/
@@ -226,22 +313,17 @@ Examples:
     subparsers.add_parser('down', help='Stop and remove containers')
     subparsers.add_parser('rebuild', help='Rebuild containers from scratch')
     
-    # composer command
-    composer_parser = subparsers.add_parser('composer', help='Run Composer commands')
-    composer_parser.add_argument('composer_args', nargs='*', help='Composer arguments')
-
-    # symfony command
-    symfony_parser = subparsers.add_parser('symfony', help='Run Symfony console commands')
-    symfony_parser.add_argument('symfony_args', nargs='*', help='Symfony console arguments')
-
-    # npm command
-    npm_parser = subparsers.add_parser('npm', help='Run NPM commands')
-    npm_parser.add_argument('npm_args', nargs='*', help='NPM arguments')
+    # Passthrough commands: listed here for 'dev --help' only. Their arguments never reach
+    # argparse (see the routing in __main__), so they declare none.
+    for name, config in PASSTHROUGH_COMMANDS.items():
+        subparsers.add_parser(name, help=config['help'])
     
     # shell command
     shell_parser = subparsers.add_parser('shell', help='Open shell in container')
-    shell_parser.add_argument('service', nargs='?', default='php', 
+    shell_parser.add_argument('service', nargs='?', default='php',
                              help='Service name (default: php)')
+    shell_parser.add_argument('--root', action='store_true',
+                             help='Open the shell as root (php opens as the symfony user by default)')
     
     # mysql command
     subparsers.add_parser('mysql', help='Open MySQL CLI')
@@ -286,6 +368,8 @@ Examples:
     up_parser = subparsers.add_parser('up', help='Start containers with optional rebuild')
     up_parser.add_argument('--build', action='store_true',
                       help='Rebuild containers before starting')
+    up_parser.add_argument('--pull', action='store_true',
+                      help='Rebuild with newer base images (e.g. a new PHP patch release); implies --build')
     
     return parser
 
@@ -355,7 +439,8 @@ def cmd_rebuild(compose_cmd, project_root):
     run_command(f"{compose_cmd} down", cwd=project_root)
     
     print_info("Building containers (this may take a while)...")
-    if not run_command(f"{compose_cmd} build --no-cache", cwd=project_root):
+    # --pull as well: --no-cache alone would still reuse the cached base images
+    if not run_command(f"{compose_cmd} build --no-cache --pull", cwd=project_root):
         print_error("Failed to build containers")
         return False
     
@@ -390,60 +475,29 @@ def cmd_logs(compose_cmd, project_root, service='', follow=False):
     
     return True
 
-def cmd_composer(compose_cmd, project_root, composer_args):
-    """Run Composer commands inside PHP container"""
-    print_header("Running Composer")
-    
-    # Join composer arguments
-    args_str = ' '.join(composer_args) if composer_args else ''
-    
-    if not args_str:
-        print_error("No composer command specified")
-        print_info("Example: dev composer install")
-        return False
-    
-    cmd = f"docker exec -it symfony-php composer {args_str}"
-    print_info(f"Running: {cmd}\n")
+def cmd_passthrough(name, tool_args, env_vars=()):
+    """Run a passthrough command (see PASSTHROUGH_COMMANDS) inside its container"""
+    config = PASSTHROUGH_COMMANDS[name]
+    # Messages go to stderr so that only the tool's output goes through a pipe
+    print_header(config['title'], file=sys.stderr)
 
-    return run_command(cmd, check=False)
-
-def cmd_symfony(compose_cmd, project_root, symfony_args):
-    """Run Symfony console commands inside PHP container"""
-    print_header("Running Symfony Console")
-
-    # Join symfony arguments
-    args_str = ' '.join(symfony_args) if symfony_args else ''
-
-    if not args_str:
-        print_error("No Symfony command specified")
-        print_info("Example: dev symfony cache:clear")
+    if not tool_args and config['example']:
+        print_error(f"No {name} command specified")
+        print_info(f"Example: dev {name} {config['example']}", file=sys.stderr)
         return False
 
-    cmd = f"docker exec -it symfony-php php bin/console {args_str}"
-    print_info(f"Running: {cmd}\n")
+    cmd = docker_exec_cmd(config['container'], config['command'] + tool_args, env_vars, config['user'])
+    print_info(f"Running: {shlex.join(cmd)}\n", file=sys.stderr)
 
-    return run_command(cmd, check=False)
+    return run_exec(cmd)
 
-def cmd_npm(compose_cmd, project_root, npm_args):
-    """Run NPM commands inside Vue container"""
-    print_header("Running NPM")
-
-    # Join npm arguments
-    args_str = ' '.join(npm_args) if npm_args else ''
-
-    if not args_str:
-        print_error("No NPM command specified")
-        print_info("Example: dev npm install")
-        return False
-
-    cmd = f"docker exec -it symfony-vue npm {args_str}"
-    print_info(f"Running: {cmd}\n")
-
-    return run_command(cmd, check=False)
-
-def cmd_shell(compose_cmd, project_root, service='php'):
-    """Open interactive shell in container"""
-    print_header(f"Opening Shell: {service}")
+def cmd_shell(compose_cmd, project_root, service='php', root=False):
+    """
+    Open interactive shell in container.
+    php opens as PHP_USER so files created from the shell aren't root-owned; root=True opens
+    any container as root. Other containers use their default user.
+    """
+    print_header(f"Opening Shell: {service}", file=sys.stderr)
 
     container_name = f"symfony-{service}"
 
@@ -453,33 +507,40 @@ def cmd_shell(compose_cmd, project_root, service='php'):
 
     if not result or container_name not in result:
         print_error(f"Container '{container_name}' is not running")
-        print_info("Available services: php, nginx, mysql, vue")
-        print_info("Start containers with: dev start")
+        print_info("Available services: php, nginx, mysql, vue", file=sys.stderr)
+        print_info("Start containers with: dev start", file=sys.stderr)
         return False
 
     # Determine shell to use (bash for most, sh for alpine-based images)
     shell = 'sh' if service in ['nginx', 'vue'] else 'bash'
 
-    cmd = f"docker exec -it {container_name} {shell}"
-    print_info(f"Running: {cmd}")
-    print_info("Type 'exit' to leave the shell\n")
+    if root:
+        user = 'root'
+    elif service == 'php':
+        user = PHP_USER
+    else:
+        user = None
 
-    return run_command(cmd, check=False)
+    cmd = docker_exec_cmd(container_name, [shell], user=user)
+    print_info(f"Running: {shlex.join(cmd)}", file=sys.stderr)
+    print_info("Type 'exit' to leave the shell\n", file=sys.stderr)
+
+    return run_exec(cmd)
 
 def cmd_mysql(compose_cmd, project_root):
     """
     Connects as root (password from MYSQL_ROOT_PASSWORD in .env) to the ape-management db
     TODO: perhaps extend it to be able to specify a different db/user-pw combination
     """
-    print_header("Opening MySQL CLI")
-    
+    print_header("Opening MySQL CLI", file=sys.stderr)
+
     # Check if MySQL container is running
     check_cmd = "docker ps --filter name=symfony-mysql --format '{{.Names}}'"
     result = run_command(check_cmd, capture_output=True)
-    
+
     if not result or 'symfony-mysql' not in result:
         print_error("MySQL container is not running")
-        print_info("Start containers with: dev start")
+        print_info("Start containers with: dev start", file=sys.stderr)
         return False
     
     # Get MySQL credentials from .env file
@@ -489,11 +550,12 @@ def cmd_mysql(compose_cmd, project_root):
     mysql_password = env_vars.get('MYSQL_ROOT_PASSWORD', 'root')
     mysql_database = 'ape-management'
     
-    cmd = f"docker exec -it symfony-mysql mysql -u{mysql_user} -p{mysql_password} {mysql_database}"
-    print_info(f"Connecting to database: {mysql_database}")
-    print_info("Type 'exit' to leave MySQL CLI\n")
+    cmd = ['docker', 'exec', docker_exec_flags(), 'symfony-mysql',
+           'mysql', f"-u{mysql_user}", f"-p{mysql_password}", mysql_database]
+    print_info(f"Connecting to database: {mysql_database}", file=sys.stderr)
+    print_info("Type 'exit' to leave MySQL CLI\n", file=sys.stderr)
 
-    return run_command(cmd, check=False)
+    return run_exec(cmd)
 
 def cmd_db_dump(compose_cmd, project_root, database='ape-management'):
     """Create a DB dump, for the ape-management db by default"""
@@ -736,7 +798,7 @@ def cmd_init(compose_cmd, project_root):
     composer_json = symfony_project / 'composer.json'
     if composer_json.exists():
         print_info("\nRunning composer install...")
-        if run_command("docker exec symfony-php composer install", check=False):
+        if run_command(f"docker exec -u {PHP_USER} symfony-php composer install", check=False):
             print_success("Composer dependencies installed")
         else:
             print_warning("Composer install failed or was skipped")
@@ -770,6 +832,9 @@ def cmd_init(compose_cmd, project_root):
     print("  * dev composer [cmd]  - Run Composer commands")
     print("  * dev symfony [cmd]   - Run Symfony console")
     print("  * dev npm [cmd]       - Run NPM commands")
+    print("  * dev php [args]      - Run php in the PHP container")
+    print("  * dev phpunit [args]  - Run PHPUnit")
+    print("  * dev phpstan [args]  - Run PHPStan")
     print("  * dev shell [service] - Open shell in container (php, vue, nginx, mysql)")
     print("  * dev mysql           - Open MySQL CLI")
     print_info("\nReload your shell or run: source ~/.bashrc")
@@ -863,6 +928,9 @@ fi
     print("  * dcomposer        - Shortcut for 'dev composer'")
     print("  * dsymfony         - Shortcut for 'dev symfony'")
     print("  * dnpm             - Shortcut for 'dev npm'")
+    print("  * dphp             - Shortcut for 'dev php'")
+    print("  * dphpunit         - Shortcut for 'dev phpunit'")
+    print("  * dphpstan         - Shortcut for 'dev phpstan'")
     print("  * dshell           - Shortcut for 'dev shell'")
     print("  * dmysql           - Shortcut for 'dev mysql'")
     print("  * dlogs            - Shortcut for 'dev logs'")
@@ -894,6 +962,8 @@ def cmd_setup_steps(compose_cmd, project_root, project_name):
     project_config = projects_config[project_name]
     project_display_name = project_config['name']
     container_name = project_config['container']
+    # Optional: run setup steps as this user (e.g. symfony) instead of the image's default
+    exec_user_flag = f"-u {project_config['exec_user']} " if project_config.get('exec_user') else ''
     setup_steps = project_config.get('setup_steps', [])
 
     print_header(f"{project_display_name} Setup Steps")
@@ -916,7 +986,7 @@ def cmd_setup_steps(compose_cmd, project_root, project_name):
 
     for i, step in enumerate(setup_steps, 1):
         print_info(f"\n[{i}/{total}] Running: {step}")
-        cmd = f"docker exec {container_name} {step}"
+        cmd = f"docker exec {exec_user_flag}{container_name} {step}"
         if not run_command(cmd, check=False):
             print_error(f"Setup step failed: {step}")
             return False
@@ -959,6 +1029,8 @@ def cmd_setup(compose_cmd, project_root, project_name, force=False):
     repo_env_var = project_config['repo_env_var']
     repo_subdir = project_config.get('repo_subdir', 'app')
     container_name = project_config['container']
+    # Optional: run setup steps as this user (e.g. symfony) instead of the image's default
+    exec_user_flag = f"-u {project_config['exec_user']} " if project_config.get('exec_user') else ''
     compose_service = project_config.get('compose_service', project_name)
     related_services = project_config.get('related_services', [])
     setup_steps = project_config.get('setup_steps', [])
@@ -1067,7 +1139,7 @@ def cmd_setup(compose_cmd, project_root, project_name, force=False):
 
     for i, step in enumerate(setup_steps, 1):
         print_info(f"\n[{i}/{total}] Running: {step}")
-        cmd = f"docker exec {container_name} {step}"
+        cmd = f"docker exec {exec_user_flag}{container_name} {step}"
         if not run_command(cmd, check=False):
             print_error(f"Setup step failed: {step}")
             return False
@@ -1147,9 +1219,13 @@ def cmd_nuke(compose_cmd, project_root, force=False):
     
     return True
 
-def cmd_up(compose_cmd, project_root, build=False):
-    """Start containers with optional rebuild"""
-    if build:
+def cmd_up(compose_cmd, project_root, build=False, pull=False):
+    """
+    Start containers with optional rebuild.
+    pull=True rebuilds with 'build --pull': newer base images (FROM / COPY --from) are
+    downloaded instead of reusing the cached ones, e.g. to get a new PHP patch release.
+    """
+    if build or pull:
         print_header("Starting Containers with Rebuild")
     else:
         print_header("Starting Containers")
@@ -1162,7 +1238,14 @@ def cmd_up(compose_cmd, project_root, build=False):
         return False
     
     # Build the command
-    if build:
+    if pull:
+        # 'up' has no option to pull base images for built services, so build first
+        print_info("Pulling newer base images and building (this may take a few minutes)...")
+        if not run_command(f"{compose_cmd} build --pull", cwd=project_root):
+            print_error("Failed to build containers")
+            return False
+        cmd = f"{compose_cmd} up -d"
+    elif build:
         cmd = f"{compose_cmd} up -d --build"
         print_info("Building and starting containers (this may take a few minutes)...")
     else:
@@ -1190,6 +1273,16 @@ def cmd_up(compose_cmd, project_root, build=False):
 
 # Main entry point will go here
 if __name__ == "__main__":
+    # Passthrough commands skip argparse: it would treat any '-x' argument (and -h/--help)
+    # as one of dev.py's own options. Everything after the command name goes to the tool,
+    # apart from dev.py's own leading '-e NAME=value' / '--' (see split_passthrough_args).
+    if len(sys.argv) > 1 and sys.argv[1] in PASSTHROUGH_COMMANDS:
+        env_vars, tool_args = split_passthrough_args(sys.argv[2:])
+        if not check_docker():
+            sys.exit(1)
+        ok = cmd_passthrough(sys.argv[1], tool_args, env_vars)
+        sys.exit(0 if ok else 1)
+
     parser = create_parser()
     args = parser.parse_args()
     
@@ -1225,14 +1318,8 @@ if __name__ == "__main__":
         cmd_down(COMPOSE_CMD, PROJECT_ROOT)
     elif args.command == 'rebuild':
         cmd_rebuild(COMPOSE_CMD, PROJECT_ROOT)
-    elif args.command == 'composer':
-        cmd_composer(COMPOSE_CMD, PROJECT_ROOT, args.composer_args)
-    elif args.command == 'symfony':
-        cmd_symfony(COMPOSE_CMD, PROJECT_ROOT, args.symfony_args)
-    elif args.command == 'npm':
-        cmd_npm(COMPOSE_CMD, PROJECT_ROOT, args.npm_args)
     elif args.command == 'shell':
-        cmd_shell(COMPOSE_CMD, PROJECT_ROOT, args.service)
+        cmd_shell(COMPOSE_CMD, PROJECT_ROOT, args.service, args.root)
     elif args.command == 'mysql':
         cmd_mysql(COMPOSE_CMD, PROJECT_ROOT)
     elif args.command == 'db-dump':
@@ -1252,7 +1339,7 @@ if __name__ == "__main__":
     elif args.command == 'nuke':
         cmd_nuke(COMPOSE_CMD, PROJECT_ROOT, args.force)
     elif args.command == 'up':
-        cmd_up(COMPOSE_CMD, PROJECT_ROOT, args.build)
+        cmd_up(COMPOSE_CMD, PROJECT_ROOT, args.build, args.pull)
     else:
         parser.print_help()
         sys.exit(1)

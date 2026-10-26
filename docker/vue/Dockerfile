@@ -1,5 +1,6 @@
-# Use Node.js LTS Alpine for smaller image
-FROM node:20-alpine
+# Node.js LTS on Alpine (smaller image). Pinned to the same version as the front's prod image,
+# because the npm bundled with Node writes package-lock.json: bump both together.
+FROM node:24.22.1-alpine
 
 # Install necessary packages
 RUN apk add --no-cache \

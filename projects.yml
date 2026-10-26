@@ -9,6 +9,8 @@ projects:
     directory: projects/symfony-api
     repo_subdir: app
     container: symfony-php
+    # setup_steps run as this user (host UID/GID) so vendor/ and var/ aren't root-owned
+    exec_user: symfony
     compose_service: php
     related_services:
       - nginx
