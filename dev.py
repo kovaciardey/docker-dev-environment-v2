@@ -6,6 +6,7 @@ Wrapper for Docker Compose operations for Symfony development
 
 import os
 import sys
+import shlex
 import subprocess
 import argparse
 from pathlib import Path
@@ -66,6 +67,16 @@ def run_command(cmd, check=True, capture_output=False, cwd=None):
         if capture_output and e.stderr:
             print_error(e.stderr)
         return False if capture_output else False
+
+def run_exec(cmd):
+    """
+    Run a command given as a list, without a shell, and return True on success.
+    Each list item reaches the program as exactly one argument (no re-splitting on spaces).
+    """
+    try:
+        return subprocess.run(cmd).returncode == 0
+    except KeyboardInterrupt:
+        return False
 
 def docker_exec_flags():
     """
@@ -398,52 +409,43 @@ def cmd_composer(compose_cmd, project_root, composer_args):
     # Messages go to stderr so that only Composer's output goes through a pipe
     print_header("Running Composer", file=sys.stderr)
 
-    # Join composer arguments
-    args_str = ' '.join(composer_args) if composer_args else ''
-
-    if not args_str:
+    if not composer_args:
         print_error("No composer command specified")
         print_info("Example: dev composer install", file=sys.stderr)
         return False
 
-    cmd = f"docker exec {docker_exec_flags()} symfony-php composer {args_str}"
-    print_info(f"Running: {cmd}\n", file=sys.stderr)
+    cmd = ['docker', 'exec', docker_exec_flags(), 'symfony-php', 'composer'] + composer_args
+    print_info(f"Running: {shlex.join(cmd)}\n", file=sys.stderr)
 
-    return run_command(cmd, check=False)
+    return run_exec(cmd)
 
 def cmd_symfony(compose_cmd, project_root, symfony_args):
     """Run Symfony console commands inside PHP container"""
     print_header("Running Symfony Console", file=sys.stderr)
 
-    # Join symfony arguments
-    args_str = ' '.join(symfony_args) if symfony_args else ''
-
-    if not args_str:
+    if not symfony_args:
         print_error("No Symfony command specified")
         print_info("Example: dev symfony cache:clear", file=sys.stderr)
         return False
 
-    cmd = f"docker exec {docker_exec_flags()} symfony-php php bin/console {args_str}"
-    print_info(f"Running: {cmd}\n", file=sys.stderr)
+    cmd = ['docker', 'exec', docker_exec_flags(), 'symfony-php', 'php', 'bin/console'] + symfony_args
+    print_info(f"Running: {shlex.join(cmd)}\n", file=sys.stderr)
 
-    return run_command(cmd, check=False)
+    return run_exec(cmd)
 
 def cmd_npm(compose_cmd, project_root, npm_args):
     """Run NPM commands inside Vue container"""
     print_header("Running NPM", file=sys.stderr)
 
-    # Join npm arguments
-    args_str = ' '.join(npm_args) if npm_args else ''
-
-    if not args_str:
+    if not npm_args:
         print_error("No NPM command specified")
         print_info("Example: dev npm install", file=sys.stderr)
         return False
 
-    cmd = f"docker exec {docker_exec_flags()} symfony-vue npm {args_str}"
-    print_info(f"Running: {cmd}\n", file=sys.stderr)
+    cmd = ['docker', 'exec', docker_exec_flags(), 'symfony-vue', 'npm'] + npm_args
+    print_info(f"Running: {shlex.join(cmd)}\n", file=sys.stderr)
 
-    return run_command(cmd, check=False)
+    return run_exec(cmd)
 
 def cmd_shell(compose_cmd, project_root, service='php'):
     """Open interactive shell in container"""
@@ -464,11 +466,11 @@ def cmd_shell(compose_cmd, project_root, service='php'):
     # Determine shell to use (bash for most, sh for alpine-based images)
     shell = 'sh' if service in ['nginx', 'vue'] else 'bash'
 
-    cmd = f"docker exec {docker_exec_flags()} {container_name} {shell}"
-    print_info(f"Running: {cmd}", file=sys.stderr)
+    cmd = ['docker', 'exec', docker_exec_flags(), container_name, shell]
+    print_info(f"Running: {shlex.join(cmd)}", file=sys.stderr)
     print_info("Type 'exit' to leave the shell\n", file=sys.stderr)
 
-    return run_command(cmd, check=False)
+    return run_exec(cmd)
 
 def cmd_mysql(compose_cmd, project_root):
     """
@@ -493,11 +495,12 @@ def cmd_mysql(compose_cmd, project_root):
     mysql_password = env_vars.get('MYSQL_ROOT_PASSWORD', 'root')
     mysql_database = 'ape-management'
     
-    cmd = f"docker exec {docker_exec_flags()} symfony-mysql mysql -u{mysql_user} -p{mysql_password} {mysql_database}"
+    cmd = ['docker', 'exec', docker_exec_flags(), 'symfony-mysql',
+           'mysql', f"-u{mysql_user}", f"-p{mysql_password}", mysql_database]
     print_info(f"Connecting to database: {mysql_database}", file=sys.stderr)
     print_info("Type 'exit' to leave MySQL CLI\n", file=sys.stderr)
 
-    return run_command(cmd, check=False)
+    return run_exec(cmd)
 
 def cmd_db_dump(compose_cmd, project_root, database='ape-management'):
     """Create a DB dump, for the ape-management db by default"""
