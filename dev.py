@@ -226,17 +226,11 @@ Examples:
     subparsers.add_parser('down', help='Stop and remove containers')
     subparsers.add_parser('rebuild', help='Rebuild containers from scratch')
     
-    # composer command
-    composer_parser = subparsers.add_parser('composer', help='Run Composer commands')
-    composer_parser.add_argument('composer_args', nargs='*', help='Composer arguments')
-
-    # symfony command
-    symfony_parser = subparsers.add_parser('symfony', help='Run Symfony console commands')
-    symfony_parser.add_argument('symfony_args', nargs='*', help='Symfony console arguments')
-
-    # npm command
-    npm_parser = subparsers.add_parser('npm', help='Run NPM commands')
-    npm_parser.add_argument('npm_args', nargs='*', help='NPM arguments')
+    # Passthrough commands: listed here for 'dev --help' only. Their arguments never reach
+    # argparse (see the routing in __main__), so they declare none.
+    subparsers.add_parser('composer', help='Run Composer commands')
+    subparsers.add_parser('symfony', help='Run Symfony console commands')
+    subparsers.add_parser('npm', help='Run NPM commands')
     
     # shell command
     shell_parser = subparsers.add_parser('shell', help='Open shell in container')
@@ -1190,6 +1184,20 @@ def cmd_up(compose_cmd, project_root, build=False):
 
 # Main entry point will go here
 if __name__ == "__main__":
+    # Passthrough commands skip argparse: it would treat any '-x' argument (and -h/--help)
+    # as one of dev.py's own options. Everything after the command name goes to the tool.
+    passthrough_commands = {'composer': cmd_composer, 'symfony': cmd_symfony, 'npm': cmd_npm}
+    if len(sys.argv) > 1 and sys.argv[1] in passthrough_commands:
+        tool_args = sys.argv[2:]
+        # Backward compatibility: 'dev composer -- update --lock' was the old workaround
+        if tool_args[:1] == ['--']:
+            tool_args = tool_args[1:]
+        if not check_docker():
+            sys.exit(1)
+        # compose_cmd is not used by these commands, they call 'docker exec' directly
+        ok = passthrough_commands[sys.argv[1]](None, get_project_root(), tool_args)
+        sys.exit(0 if ok else 1)
+
     parser = create_parser()
     args = parser.parse_args()
     
@@ -1225,12 +1233,6 @@ if __name__ == "__main__":
         cmd_down(COMPOSE_CMD, PROJECT_ROOT)
     elif args.command == 'rebuild':
         cmd_rebuild(COMPOSE_CMD, PROJECT_ROOT)
-    elif args.command == 'composer':
-        cmd_composer(COMPOSE_CMD, PROJECT_ROOT, args.composer_args)
-    elif args.command == 'symfony':
-        cmd_symfony(COMPOSE_CMD, PROJECT_ROOT, args.symfony_args)
-    elif args.command == 'npm':
-        cmd_npm(COMPOSE_CMD, PROJECT_ROOT, args.npm_args)
     elif args.command == 'shell':
         cmd_shell(COMPOSE_CMD, PROJECT_ROOT, args.service)
     elif args.command == 'mysql':
