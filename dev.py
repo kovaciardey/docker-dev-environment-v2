@@ -32,19 +32,19 @@ def print_error(msg):
     """Print error message in red"""
     print(f"{Colors.FAIL}x {msg}{Colors.ENDC}", file=sys.stderr)
 
-def print_info(msg):
+def print_info(msg, file=sys.stdout):
     """Print info message in cyan"""
-    print(f"{Colors.OKCYAN}* {msg}{Colors.ENDC}")
+    print(f"{Colors.OKCYAN}* {msg}{Colors.ENDC}", file=file)
 
 def print_warning(msg):
     """Print warning message in yellow"""
     print(f"{Colors.WARNING}! {msg}{Colors.ENDC}")
 
-def print_header(msg):
+def print_header(msg, file=sys.stdout):
     """Print section header"""
-    print(f"\n{Colors.HEADER}{Colors.BOLD}{'='*60}{Colors.ENDC}")
-    print(f"{Colors.HEADER}{Colors.BOLD}{msg:^60}{Colors.ENDC}")
-    print(f"{Colors.HEADER}{Colors.BOLD}{'='*60}{Colors.ENDC}\n")
+    print(f"\n{Colors.HEADER}{Colors.BOLD}{'='*60}{Colors.ENDC}", file=file)
+    print(f"{Colors.HEADER}{Colors.BOLD}{msg:^60}{Colors.ENDC}", file=file)
+    print(f"{Colors.HEADER}{Colors.BOLD}{'='*60}{Colors.ENDC}\n", file=file)
 
 def run_command(cmd, check=True, capture_output=False, cwd=None):
     """Run a shell command and return result"""
@@ -66,6 +66,15 @@ def run_command(cmd, check=True, capture_output=False, cwd=None):
         if capture_output and e.stderr:
             print_error(e.stderr)
         return False if capture_output else False
+
+def docker_exec_flags():
+    """
+    Flags for 'docker exec' commands that may be interactive or piped.
+    -i keeps stdin open, so piped input reaches the container (dev mysql < dump.sql).
+    -t (a terminal) only when stdin and stdout are both a real terminal: docker refuses -t
+    when stdin is a pipe/file, and with stdout piped (| head) it would leave the terminal in raw mode.
+    """
+    return '-it' if sys.stdin.isatty() and sys.stdout.isatty() else '-i'
 
 def get_project_root():
     """Get the project root directory (where dev.py is located)"""
@@ -386,58 +395,59 @@ def cmd_logs(compose_cmd, project_root, service='', follow=False):
 
 def cmd_composer(compose_cmd, project_root, composer_args):
     """Run Composer commands inside PHP container"""
-    print_header("Running Composer")
-    
+    # Messages go to stderr so that only Composer's output goes through a pipe
+    print_header("Running Composer", file=sys.stderr)
+
     # Join composer arguments
     args_str = ' '.join(composer_args) if composer_args else ''
-    
+
     if not args_str:
         print_error("No composer command specified")
-        print_info("Example: dev composer install")
+        print_info("Example: dev composer install", file=sys.stderr)
         return False
-    
-    cmd = f"docker exec -it symfony-php composer {args_str}"
-    print_info(f"Running: {cmd}\n")
+
+    cmd = f"docker exec {docker_exec_flags()} symfony-php composer {args_str}"
+    print_info(f"Running: {cmd}\n", file=sys.stderr)
 
     return run_command(cmd, check=False)
 
 def cmd_symfony(compose_cmd, project_root, symfony_args):
     """Run Symfony console commands inside PHP container"""
-    print_header("Running Symfony Console")
+    print_header("Running Symfony Console", file=sys.stderr)
 
     # Join symfony arguments
     args_str = ' '.join(symfony_args) if symfony_args else ''
 
     if not args_str:
         print_error("No Symfony command specified")
-        print_info("Example: dev symfony cache:clear")
+        print_info("Example: dev symfony cache:clear", file=sys.stderr)
         return False
 
-    cmd = f"docker exec -it symfony-php php bin/console {args_str}"
-    print_info(f"Running: {cmd}\n")
+    cmd = f"docker exec {docker_exec_flags()} symfony-php php bin/console {args_str}"
+    print_info(f"Running: {cmd}\n", file=sys.stderr)
 
     return run_command(cmd, check=False)
 
 def cmd_npm(compose_cmd, project_root, npm_args):
     """Run NPM commands inside Vue container"""
-    print_header("Running NPM")
+    print_header("Running NPM", file=sys.stderr)
 
     # Join npm arguments
     args_str = ' '.join(npm_args) if npm_args else ''
 
     if not args_str:
         print_error("No NPM command specified")
-        print_info("Example: dev npm install")
+        print_info("Example: dev npm install", file=sys.stderr)
         return False
 
-    cmd = f"docker exec -it symfony-vue npm {args_str}"
-    print_info(f"Running: {cmd}\n")
+    cmd = f"docker exec {docker_exec_flags()} symfony-vue npm {args_str}"
+    print_info(f"Running: {cmd}\n", file=sys.stderr)
 
     return run_command(cmd, check=False)
 
 def cmd_shell(compose_cmd, project_root, service='php'):
     """Open interactive shell in container"""
-    print_header(f"Opening Shell: {service}")
+    print_header(f"Opening Shell: {service}", file=sys.stderr)
 
     container_name = f"symfony-{service}"
 
@@ -447,16 +457,16 @@ def cmd_shell(compose_cmd, project_root, service='php'):
 
     if not result or container_name not in result:
         print_error(f"Container '{container_name}' is not running")
-        print_info("Available services: php, nginx, mysql, vue")
-        print_info("Start containers with: dev start")
+        print_info("Available services: php, nginx, mysql, vue", file=sys.stderr)
+        print_info("Start containers with: dev start", file=sys.stderr)
         return False
 
     # Determine shell to use (bash for most, sh for alpine-based images)
     shell = 'sh' if service in ['nginx', 'vue'] else 'bash'
 
-    cmd = f"docker exec -it {container_name} {shell}"
-    print_info(f"Running: {cmd}")
-    print_info("Type 'exit' to leave the shell\n")
+    cmd = f"docker exec {docker_exec_flags()} {container_name} {shell}"
+    print_info(f"Running: {cmd}", file=sys.stderr)
+    print_info("Type 'exit' to leave the shell\n", file=sys.stderr)
 
     return run_command(cmd, check=False)
 
@@ -465,15 +475,15 @@ def cmd_mysql(compose_cmd, project_root):
     Connects as root (password from MYSQL_ROOT_PASSWORD in .env) to the ape-management db
     TODO: perhaps extend it to be able to specify a different db/user-pw combination
     """
-    print_header("Opening MySQL CLI")
-    
+    print_header("Opening MySQL CLI", file=sys.stderr)
+
     # Check if MySQL container is running
     check_cmd = "docker ps --filter name=symfony-mysql --format '{{.Names}}'"
     result = run_command(check_cmd, capture_output=True)
-    
+
     if not result or 'symfony-mysql' not in result:
         print_error("MySQL container is not running")
-        print_info("Start containers with: dev start")
+        print_info("Start containers with: dev start", file=sys.stderr)
         return False
     
     # Get MySQL credentials from .env file
@@ -483,9 +493,9 @@ def cmd_mysql(compose_cmd, project_root):
     mysql_password = env_vars.get('MYSQL_ROOT_PASSWORD', 'root')
     mysql_database = 'ape-management'
     
-    cmd = f"docker exec -it symfony-mysql mysql -u{mysql_user} -p{mysql_password} {mysql_database}"
-    print_info(f"Connecting to database: {mysql_database}")
-    print_info("Type 'exit' to leave MySQL CLI\n")
+    cmd = f"docker exec {docker_exec_flags()} symfony-mysql mysql -u{mysql_user} -p{mysql_password} {mysql_database}"
+    print_info(f"Connecting to database: {mysql_database}", file=sys.stderr)
+    print_info("Type 'exit' to leave MySQL CLI\n", file=sys.stderr)
 
     return run_command(cmd, check=False)
 
