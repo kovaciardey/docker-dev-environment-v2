@@ -134,36 +134,32 @@ Now you can use short aliases like `dev`, `dcomposer`, `dsymfony`, `dsetup`, etc
 
 ## Architecture
 ```
-┌─────────────┐
-│   Browser   │
-└──────┬──────┘
-       │ :8080
-       ▼
-┌─────────────────┐
-│ Nginx Container │  Serves static files
-│   (Alpine)      │  Proxies PHP via FastCGI
-└────────┬────────┘
-         │ :9000
-         ▼
-┌──────────────────┐
-│ PHP-FPM Container│  Executes PHP code
-│   (PHP 8.4)      │  Symfony 6.4
-└────────┬─────────┘
-         │ :3306
-         ▼
-┌──────────────────┐
-│ MySQL Container  │  Persistent database
-│   (MySQL 8.4)    │
-└──────────────────┘
-         ▲
-         │ :8081
-┌──────────────────┐
-│  phpMyAdmin      │  Web UI for MySQL
-└──────────────────┘
+Browser
+   │ :80 (the only web port published on the host)
+   ▼
+Traefik (v3.6)  ── routes each request by domain name
+   │
+   ├─ ape-management.andrei.dev.uk      → Vue dev server :8080   (Node 24, Vue CLI, hot reload)
+   │
+   ├─ ape-management.api.andrei.dev.uk  → Nginx :80              (serves static files)
+   │                                        │ :9000 FastCGI
+   │                                        ▼
+   │                                      PHP-FPM                (PHP 8.4, Symfony 6.4)
+   │                                        │ :3306
+   │                                        ▼
+   │                                      MySQL 8.4              (also published on host :3306)
+   │                                        ▲
+   ├─ phpmyadmin.andrei.dev.uk          → phpMyAdmin :80 ────────┘
+   │
+   ├─ dozzle.andrei.dev.uk              → Dozzle :8080           (live container logs)
+   │
+   └─ traefik.andrei.dev.uk             → Traefik dashboard
 ```
+Ports after `→` are inside the Docker network; only Traefik's `:80` and MySQL's `:3306` are reachable from the host.
 
 **Volume Mounts:**
 - `./projects/symfony-api` → `/var/www/html` (mounted in both Nginx and PHP-FPM)
+- `./projects/ape-management-frontend` → `/app` (Vue)
 - `./logs/nginx` → Container logs (for debugging)
 - `mysql-data` → Persistent database volume
 
@@ -178,11 +174,12 @@ Now you can use short aliases like `dev`, `dcomposer`, `dsymfony`, `dsetup`, etc
 ```bash
 dev init              # Initialize environment (first-time setup)
 dev up                # Start containers (use --build to rebuild)
+dev up --pull         # Rebuild with newer base images first (e.g. a new PHP patch release)
 dev start             # Start all containers
 dev stop              # Stop all containers
 dev restart           # Restart all containers
 dev down              # Stop and remove containers (data preserved)
-dev rebuild           # Rebuild containers from scratch
+dev rebuild           # Rebuild containers from scratch (no layer cache, newer base images)
 dev status            # Show container status
 dev nuke              # Complete Docker reset (use --force to skip prompt)
 ```
@@ -196,14 +193,41 @@ dev setup <name> --force # Skip confirmation prompts when resetting
 
 ### Development Commands
 ```bash
-dev composer [cmd]    # Run Composer commands
-dev symfony [cmd]     # Run Symfony console commands
-dev npm [cmd]         # Run NPM commands
+dev composer [args]   # Run Composer commands
+dev symfony [args]    # Run Symfony console commands (php bin/console)
+dev npm [args]        # Run NPM commands (Vue container)
+dev php [args]        # Run php in the PHP container
+dev phpunit [args]    # Run PHPUnit (vendor/bin/phpunit; no arguments = all tests)
+dev phpstan [args]    # Run PHPStan (vendor/bin/phpstan)
 dev setup-symfony     # Run Symfony database setup (create DB, migrations, fixtures)
-dev shell [service]   # Open interactive shell (default: php)
+dev shell [service]   # Open interactive shell (default: php, as the symfony user)
+dev shell php --root  # Open a root shell (for system tasks like apt-get or chown)
 dev mysql             # Open MySQL CLI (as root, on the ape-management database)
 dev logs [service]    # View logs (use -f to follow)
 ```
+
+### How the Wrappers Pass Arguments
+
+`composer`, `symfony`, `npm`, `php`, `phpunit` and `phpstan` pass everything after the command name to the tool unchanged:
+```bash
+dev composer update --lock                            # dashes are fine, no "--" needed
+dev composer --help                                   # Composer's help (dev --help shows dev.py's)
+dev symfony dbal:run-sql "SELECT 'hello world'"       # quoted arguments stay one argument
+dev symfony list | head                               # output can be piped
+dev mysql < backups/<file>.sql                        # input can be piped (mysql and shell too)
+echo "SELECT 1;" | dev mysql
+```
+
+- **Environment variables:** `-e NAME=value` right after the command name is read by dev.py and passed to `docker exec -e` (repeatable):
+  ```bash
+  dev symfony -e TRUSTED_PROXIES=127.0.0.1 lint:container --env=prod
+  ```
+  dev.py only reads `-e NAME=value` (and an optional `--`) at the front. A `-e` without `NAME=` goes to the tool, so Symfony's own `-e prod` (short for `--env=prod`) still works.
+- **`--`** right after the command name is accepted and dropped (`dev composer -- update --lock`), so old habits still work.
+- **Terminal:** a TTY (`docker exec -t`) is only used when both input and output are a terminal, so piping and redirects work.
+- **Output:** dev.py's own header and "Running:" line go to stderr, so only the tool's output goes into a pipe or file.
+- **User:** the PHP commands run as the `symfony` user (same UID/GID as you on the host), so files they create (`vendor/`, `var/`, generated code) belong to you, not root. `npm` runs as the Vue container's default user, which is also your UID.
+- **Exit code:** the tool's success or failure is passed on (`dev phpunit && echo ok`).
 
 ### Database Commands
 ```bash
@@ -223,6 +247,9 @@ dev                   # Main command
 dcomposer             # Alias for 'dev composer'
 dsymfony              # Alias for 'dev symfony'
 dnpm                  # Alias for 'dev npm'
+dphp                  # Alias for 'dev php'
+dphpunit              # Alias for 'dev phpunit'
+dphpstan              # Alias for 'dev phpstan'
 dshell                # Alias for 'dev shell'
 dmysql                # Alias for 'dev mysql'
 dlogs                 # Alias for 'dev logs'
@@ -266,14 +293,40 @@ projects:
     name: "Symfony API"
     repo_env_var: SYMFONY_REPO
     directory: projects/symfony-api
+    repo_subdir: app
     container: symfony-php
+    exec_user: symfony
+    compose_service: php
+    related_services:
+      - nginx
+    setup_steps:
+      - "composer install --no-interaction"
+      - "php bin/console doctrine:database:create --if-not-exists"
+      - "php bin/console doctrine:migrations:migrate --no-interaction"
+      - "php bin/console doctrine:fixtures:load --no-interaction"
 
   vue:
     name: "Vue Frontend"
     repo_env_var: VUE_REPO
     directory: projects/ape-management-frontend
+    repo_subdir: app
     container: symfony-vue
+    compose_service: vue
+    setup_steps:
+      - "npm install"
 ```
+
+| Key | Meaning |
+|---|---|
+| `name` | Display name in dev.py's output |
+| `repo_env_var` | `.env` variable holding the Git URL (prompted for if missing or a placeholder) |
+| `directory` | Mount point that is bind-mounted into the container (kept on reset) |
+| `repo_subdir` | Folder inside `directory` that the repo is cloned into (deleted and re-cloned by `dev setup`; default `app`) |
+| `container` | Container the `setup_steps` run in |
+| `exec_user` | Optional: user the `setup_steps` run as (default: the image's user, root for `symfony-php`) |
+| `compose_service` | Compose service of the container, stopped/started around the re-clone (default: the project key) |
+| `related_services` | Other services stopped/started with it (e.g. Nginx serves the same files) |
+| `setup_steps` | Commands run in order via `docker exec` by `dev setup <project>` and `dev setup-symfony` |
 
 You can add more projects by following this structure.
 
@@ -344,7 +397,8 @@ Password: root
 
 ### Containers (Shell Access)
 ```bash
-dev shell php         # PHP-FPM container (default)
+dev shell php         # PHP-FPM container (default), as the symfony user
+dev shell php --root  # PHP-FPM container as root (--root works for any service)
 dev shell nginx       # Nginx container
 dev shell mysql       # MySQL container
 dev shell vue         # Vue container
@@ -469,8 +523,11 @@ dev logs -f php
 
 ### Running Tests
 ```bash
-dev shell
-php bin/phpunit
+dev composer test            # All tests (the API's "test" script)
+dev phpunit                  # Same, calling PHPUnit directly
+dev phpunit --filter Bill    # Only tests matching a name
+dev composer test:db         # (Re)create the test database first, if needed
+dev composer ci              # Full CI checks: validate, audit, lints, PHPStan, tests
 ```
 
 ### Clearing Symfony Cache
@@ -483,8 +540,8 @@ php bin/console cache:clear
 
 ### Importing Database Dump
 ```bash
-# Via MySQL CLI (raw docker: `dev mysql` allocates a TTY, so it can't read from a redirect)
-docker exec -i symfony-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD"' < backups/<file>.sql
+# Via MySQL CLI
+dev mysql < backups/<file>.sql
 
 # Via phpMyAdmin
 # Go to http://phpmyadmin.andrei.dev.uk and use the Import tab
@@ -551,7 +608,7 @@ Visit http://traefik.andrei.dev.uk to see active routes
 
 **Symptom:** Can't write to cache, logs, or var directory
 
-**Cause:** USER_ID/GROUP_ID mismatch
+**Cause 1:** USER_ID/GROUP_ID mismatch
 
 **Solution:**
 ```bash
@@ -560,6 +617,16 @@ dev down
 # Find yours with: id -u (USER_ID) and id -g (GROUP_ID)
 dev rebuild
 ```
+
+**Cause 2:** root-owned files, created by something that ran as root in the PHP container (e.g. raw `docker exec` without `-u symfony`, or a `dev shell php --root` session). The dev wrappers run as `symfony`, which can't write into root's files.
+
+**Check and fix:**
+```bash
+find projects/symfony-api/app -uid 0 | wc -l          # how many root-owned files (should be 0)
+docker exec -u root symfony-php chown -R symfony:symfony vendor var   # no sudo needed
+# or on the host: sudo chown -R 1000:1000 projects/symfony-api/app/vendor projects/symfony-api/app/var
+```
+Files inside the container but outside the project (e.g. PHPStan's `/tmp/phpstan` cache) can be removed with `docker exec -u root symfony-php rm -rf /tmp/phpstan`; a recreated container starts with a fresh `/tmp` anyway.
 
 ### "Connection Refused" When Accessing MySQL
 
@@ -585,10 +652,9 @@ dev restart
 dev logs php
 ```
 
-**Try manual install:**
+**Try a verbose install:**
 ```bash
-dev shell
-composer install -vvv
+dev composer install -vvv
 ```
 
 ### Nginx 502 Bad Gateway
@@ -651,11 +717,11 @@ DB_USERNAME="root"
 DB_PASSWORD="root"
 ```
 
-The MySQL version is set in `config/packages/doctrine.yaml` (`server_version: '8.4'`), not in an env var.
+The MySQL version is set in `config/packages/doctrine.yaml` (`server_version: '8.4.0'`), not in an env var.
 
 **Test connection:**
 ```bash
-dev symfony doctrine:query:sql "SELECT 1"
+dev symfony dbal:run-sql "SELECT 1"
 ```
 
 ---
@@ -673,9 +739,11 @@ dev-environment/
 │   │   └── Dockerfile           # Vue3 container
 │   └── mysql/
 │       └── my.cnf               # MySQL custom config
-├── projects/
-│   ├── symfony-api/             # Your Symfony project (cloned via setup)
-│   └── ape-management-frontend/ # Your Vue3 project (cloned via setup)
+├── projects/                    # gitignored; each project is its own Git repo
+│   ├── symfony-api/             # Mount point (-> /var/www/html)
+│   │   └── app/                 # Symfony API repo (cloned via dev setup symfony)
+│   └── ape-management-frontend/ # Mount point (-> /app)
+│       └── app/                 # Vue3 repo (cloned via dev setup vue)
 ├── backups/                     # Database dumps from dev db-dump (gitignored)
 ├── logs/
 │   └── nginx/                   # Nginx access/error logs
@@ -685,6 +753,7 @@ dev-environment/
 ├── aliases                      # Bash aliases template
 ├── .env                         # Environment variables (created by init)
 ├── .env.example                 # Environment template
+├── .dockerignore                # Not used by the current builds (each image builds from docker/<service>/)
 └── README.md                    # This file
 ```
 
@@ -708,11 +777,14 @@ dev composer update
 
 ### Update Docker Images
 ```bash
-docker compose pull   # No wrapper; downloads newer images for the current tags
+docker compose pull   # No wrapper; downloads newer images for the current tags (mysql, phpmyadmin, traefik, dozzle)
 dev up                # Recreates only the containers whose image changed
+dev up --pull         # Images built from docker/*/Dockerfile: pull newer base images (FROM / COPY --from), rebuild, recreate
 ```
 
-Compose only pulls an image when it is missing locally, so floating tags like `mysql:8.4` stay on the cached patch release until you pull. Patch releases within the same tag keep the existing data volume; a major/minor change (e.g. 8.4 → 9.x) should go through [Resetting the Database](#resetting-the-database).
+Compose only pulls an image when it is missing locally, so floating tags like `mysql:8.4` or `php:8.4-fpm` stay on the cached patch release until you pull. `--pull` and `--no-cache` are different: `--pull` checks for a newer base image; `--no-cache` reruns every build step but still uses the cached base image (`dev rebuild` uses both).
+
+The Vue image is pinned to an exact Node version (`node:24.22.1-alpine`) that matches the front's prod image, because the npm bundled with Node writes `package-lock.json`. Bump both together. Patch releases within the same tag keep the existing data volume; a major/minor change (e.g. 8.4 → 9.x) should go through [Resetting the Database](#resetting-the-database).
 
 ---
 
@@ -720,8 +792,8 @@ Compose only pulls an image when it is missing locally, so floating tags like `m
 
 ### Running Custom Commands in Containers
 ```bash
-# PHP container
-docker exec -it symfony-php [command]
+# PHP container (-u symfony, otherwise it runs as root and new files become root-owned)
+docker exec -it -u symfony symfony-php [command]
 
 # Nginx container
 docker exec -it symfony-nginx [command]
@@ -784,13 +856,5 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-## Support
-
-For issues or questions:
-- Create an issue in this repository
-- Contact: [your-email@example.com]
 
 ---
