@@ -10,6 +10,8 @@ services:
     container_name: symfony-php
     restart: unless-stopped
     working_dir: /var/www/html/app
+    # Infra version (INFRA_VERSION), read by the API's welcome endpoint; only the API needs it
+    env_file: version.env
     volumes:
       # Mount Symfony project directory
       - ./projects/symfony-api:/var/www/html

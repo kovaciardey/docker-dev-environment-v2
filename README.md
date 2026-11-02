@@ -284,6 +284,21 @@ SYMFONY_REPO=https://github.com/yourusername/symfony-api.git
 VUE_REPO=https://github.com/yourusername/vue-frontend.git
 ```
 
+### Version (version.env)
+
+This repo is versioned with SemVer, and tags have no `v` (e.g. `2.0.0`). The current version lives in the committed `version.env`:
+```env
+INFRA_VERSION=2.0.0
+```
+
+Compose loads it with `env_file:` on the `php` service only, because only the API reads it. The API returns it as `infraVersion` in `/api/v1/welcome`, and the front shows it in the sidebar footer (the "Infra" row). It's a real environment variable, so it wins over the empty `INFRA_VERSION=` fallback in the API's `.env`. It reaches PHP web requests because the base image's `/usr/local/etc/php-fpm.d/docker.conf` sets `clear_env = no`. It's kept apart from `.env`, which is git-ignored and holds secrets.
+
+To release:
+1. Bump `INFRA_VERSION` in `version.env` in a PR and merge it.
+2. Create a GitHub Release with the tag set to that exact version (no `v`) and click "Generate release notes".
+
+After changing `version.env`, run `dev up`: it recreates the `php` container with the new value. `dev start` and `dev restart` reuse the existing container, so they keep the old value.
+
 ### Projects Configuration (projects.yml)
 
 The `projects.yml` file defines available projects for the setup command:
@@ -753,6 +768,7 @@ dev-environment/
 ├── aliases                      # Bash aliases template
 ├── .env                         # Environment variables (created by init)
 ├── .env.example                 # Environment template
+├── version.env                  # This repo's version (INFRA_VERSION), committed
 ├── .dockerignore                # Not used by the current builds (each image builds from docker/<service>/)
 └── README.md                    # This file
 ```
