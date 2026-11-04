@@ -89,6 +89,8 @@ build/
 *.bak
 *.backup
 *.old
+# Claude session working notes (never committed)
+tmp/
 
 # Docker Compose Override
 # -----------------------
