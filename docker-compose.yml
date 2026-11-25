@@ -12,6 +12,16 @@ services:
     working_dir: /var/www/html/app
     # Infra version (INFRA_VERSION), read by the API's welcome endpoint; only the API needs it
     env_file: version.env
+    environment:
+      # Xdebug mode: debug (default), off, or coverage; set it in .env, then `dev up`
+      XDEBUG_MODE: ${XDEBUG_MODE:-debug}
+      # Tells PhpStorm which server entry (and so which path mapping) to use. Reaches CLI runs and
+      # HTTP requests alike (the base image's FPM config has clear_env = no)
+      PHP_IDE_CONFIG: serverName=ape-api
+    extra_hosts:
+      # Lets Xdebug reach the IDE on the host (xdebug.client_host); built in on Docker Desktop,
+      # needed on plain Docker Engine
+      - "host.docker.internal:host-gateway"
     volumes:
       # Mount Symfony project directory
       - ./projects/symfony-api:/var/www/html

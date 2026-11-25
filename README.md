@@ -12,6 +12,7 @@ A Docker-based development environment for Symfony 6.4 API projects with Nginx, 
 - [Configuration](#configuration)
 - [Accessing Services](#accessing-services)
 - [Common Tasks](#common-tasks)
+- [Debugging with Xdebug](#debugging-with-xdebug)
 - [Troubleshooting](#troubleshooting)
 - [Project Structure](#project-structure)
 
@@ -282,13 +283,16 @@ GROUP_ID=1000
 # Project Repositories (for dev setup commands)
 SYMFONY_REPO=https://github.com/yourusername/symfony-api.git
 VUE_REPO=https://github.com/yourusername/vue-frontend.git
+
+# Xdebug: debug (default), off, coverage; run `dev up` after changing it
+# XDEBUG_MODE=debug
 ```
 
 ### Version (version.env)
 
-This repo is versioned with SemVer, and tags have no `v` (e.g. `2.0.0`). The current version lives in the committed `version.env`:
+This repo is versioned with SemVer, and tags have no `v` (e.g. `<version>`). The current version lives in the committed `version.env`:
 ```env
-INFRA_VERSION=2.0.0
+INFRA_VERSION=<version>
 ```
 
 Compose loads it with `env_file:` on the `php` service only, because only the API reads it. The API returns it as `infraVersion` in `/api/v1/welcome`, and the front shows it in the sidebar footer (the "Infra" row). It's a real environment variable, so it wins over the empty `INFRA_VERSION=` fallback in the API's `.env`. It reaches PHP web requests because the base image's `/usr/local/etc/php-fpm.d/docker.conf` sets `clear_env = no`. It's kept apart from `.env`, which is git-ignored and holds secrets.
@@ -584,6 +588,70 @@ dev setup-symfony  # Create DB, run migrations, load fixtures
 ```
 
 This is also how to move to a new MySQL major/minor version: change the image tag in `docker-compose.yml`, then run the steps above.
+
+---
+
+## Debugging with Xdebug
+
+The dev PHP image has Xdebug (the prod image never does). When a request or command asks for it, PHP connects **out** to the IDE on port 9003, which is why the IDE has to "listen". Without that request, nothing connects and nothing warns.
+
+**Prerequisite:** PhpStorm runs through Remote Development into WSL, so its backend listens inside WSL, where the containers can reach it. That's a machine-wide setup, described in docs-hub's `machine-setup.md`.
+
+### How It's Wired
+
+- `docker/symfony/Dockerfile` installs Xdebug and writes `conf.d/xdebug.ini`: `xdebug.mode=debug`, `xdebug.start_with_request=trigger` (connect only when triggered), `xdebug.client_host=host.docker.internal`, `xdebug.client_port=9003`.
+- `docker-compose.yml`, service `php`:
+  - `XDEBUG_MODE` comes from `.env` (default `debug`) and overrides `xdebug.mode`.
+  - `PHP_IDE_CONFIG=serverName=ape-api` tells PhpStorm which server entry, and so which path mapping, to use. It reaches CLI runs and web requests alike (the base image's FPM config has `clear_env = no`).
+  - `extra_hosts: host.docker.internal:host-gateway` makes that name point at the Docker host. Docker Desktop has it built in; plain Docker Engine needs this line.
+
+### PhpStorm Setup (Once)
+
+1. **Settings → PHP → Servers**, add one:
+   - **Name:** `ape-api`. It must match `PHP_IDE_CONFIG`; that's how PhpStorm picks this entry.
+   - **Host:** `ape-management.api.andrei.dev.uk`, **Port:** `80`, **Debugger:** Xdebug.
+   - Tick **Use path mappings**, and map `projects/symfony-api/app` (the API repo root) to `/var/www/html/app`.
+2. **Settings → PHP → Debug:** Xdebug port `9003`.
+3. Click **Start Listening for PHP Debug Connections** (the Listen button, or the Run menu).
+
+One server entry covers tests, console commands and HTTP requests. Until the mapping exists, PhpStorm may stop on the first line of every script; with the mapping, it stops only at your breakpoints. Use **Resume** (F9) to let a run continue.
+
+### Starting a Debug Session (Triggers)
+
+Set a breakpoint, make sure PhpStorm is listening, then use the trigger for the entry point:
+
+| Entry point | How to trigger |
+|---|---|
+| Tests | `dev phpunit -e XDEBUG_TRIGGER=1 --filter <test>` |
+| Console commands | `dev symfony -e XDEBUG_TRIGGER=1 <command>` |
+| Postman / curl | a cookie `XDEBUG_TRIGGER=1`, or `?XDEBUG_TRIGGER=1` in the URL |
+| Browser | an Xdebug Helper extension, enabled on the API's hostname |
+
+`-e NAME=value` is dev.py's option for passing an environment variable (see [How the Wrappers Pass Arguments](#how-the-wrappers-pass-arguments)).
+
+**Known catch, front → API:** Xdebug Helper sets its cookie on the hostname of the page you're on. In the Vue app that's the front's hostname, so the front's axios calls to the API don't carry it. Trigger API requests from Postman, or open the API URL directly. (Serving the front and API on one hostname in dev would fix this; it's noted in docs-hub, not built.)
+
+### Turning Xdebug Off
+
+For speed when you don't need the debugger, set it in `.env`, then recreate the container:
+```bash
+# .env
+XDEBUG_MODE=off
+```
+```bash
+dev up
+```
+
+`dev up` is needed: `dev restart` keeps the container's old settings. No rebuild is needed. Remove the line, or set `debug`, and run `dev up` again to turn it back on. The API's coverage script sets `XDEBUG_MODE=coverage` itself, so you don't change `.env` for coverage.
+
+### Xdebug Troubleshooting
+
+- **"Xdebug: [Step Debug] Could not connect to debugging client":** a trigger was set but PhpStorm isn't listening. Click Listen, or drop the trigger.
+- **Is it loaded?** `dev php -v` should show `with Xdebug v<version>`.
+- **Which mode is active?** `dev php -r 'var_dump(xdebug_info("mode"));'` lists the active modes (an empty list means off).
+- **504 Gateway Time-out while paused at a breakpoint:** nginx waits 60 seconds for PHP-FPM (`fastcgi_read_timeout`), then gives up on the request. The debug session itself is fine; resume, then send the request again.
+- **PhpStorm gets nothing:** check it's listening on `9003`, that the trigger is set, and that `XDEBUG_MODE` isn't `off`.
+- **PhpStorm stops but shows the wrong file, or asks for a mapping:** check the server name is exactly `ape-api` and the path mapping above.
 
 ---
 
