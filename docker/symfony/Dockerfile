@@ -35,6 +35,10 @@ RUN docker-php-ext-install \
 RUN pecl install apcu \
     && docker-php-ext-enable apcu
 
+# Install Xdebug (step debugging from the IDE; dev image only, never in prod)
+RUN pecl install xdebug \
+    && docker-php-ext-enable xdebug
+
 # Configure PHP for development
 RUN cp "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini"
 
@@ -58,12 +62,19 @@ RUN echo "opcache.enable=1" >> "$PHP_INI_DIR/conf.d/opcache.ini" \
 # Configure APCu for Symfony proxy-manager-bridge
 RUN echo "apc.enable_cli=1" >> "$PHP_INI_DIR/conf.d/apcu.ini"
 
+# Configure Xdebug: loaded always, but it connects to the IDE only when a request or command
+# carries XDEBUG_TRIGGER. The XDEBUG_MODE env var (set in docker-compose.yml) overrides xdebug.mode.
+RUN echo "xdebug.mode=debug" >> "$PHP_INI_DIR/conf.d/xdebug.ini" \
+    && echo "xdebug.start_with_request=trigger" >> "$PHP_INI_DIR/conf.d/xdebug.ini" \
+    && echo "xdebug.client_host=host.docker.internal" >> "$PHP_INI_DIR/conf.d/xdebug.ini" \
+    && echo "xdebug.client_port=9003" >> "$PHP_INI_DIR/conf.d/xdebug.ini"
+
 # Install Composer (latest version)
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 # Install Symfony CLI
 RUN curl -sS https://get.symfony.com/cli/installer | bash \
-    && mv /root/.symfony*/bin/symfony /usr/local/bin/symfony
+    && mv /root/.config/symfony-cli/bin/symfony /usr/local/bin/symfony
 
 # Create symfony user with matching UID/GID from host
 RUN groupadd -g ${GROUP_ID} symfony \
