@@ -290,9 +290,9 @@ VUE_REPO=https://github.com/yourusername/vue-frontend.git
 
 ### Version (version.env)
 
-This repo is versioned with SemVer, and tags have no `v` (e.g. `2.0.0`). The current version lives in the committed `version.env`:
+This repo is versioned with SemVer, and tags have no `v` (e.g. `<version>`). The current version lives in the committed `version.env`:
 ```env
-INFRA_VERSION=2.0.0
+INFRA_VERSION=<version>
 ```
 
 Compose loads it with `env_file:` on the `php` service only, because only the API reads it. The API returns it as `infraVersion` in `/api/v1/welcome`, and the front shows it in the sidebar footer (the "Infra" row). It's a real environment variable, so it wins over the empty `INFRA_VERSION=` fallback in the API's `.env`. It reaches PHP web requests because the base image's `/usr/local/etc/php-fpm.d/docker.conf` sets `clear_env = no`. It's kept apart from `.env`, which is git-ignored and holds secrets.
